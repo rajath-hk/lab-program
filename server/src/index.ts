@@ -11,7 +11,7 @@ import assessmentRoutes from './routes/assessmentRoutes';
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 4000;
-const CORS_ORIGIN = process.env.CORS_ORIGIN || 'http://localhost:5173';
+const CORS_ORIGIN = process.env.CORS_ORIGIN || 'http://localhost:3000';
 
 // --- Global Middleware ---
 
@@ -96,6 +96,16 @@ app.use(
     });
   }
 );
+
+// --- Warm up code executor (pre-pull Docker images) ---
+
+import('./services/dockerExecutor').then(({ warmupImages }) => {
+  warmupImages().then(() => {
+    console.log('[MCA Lab Portal] Code executor images ready');
+  }).catch((err: Error) => {
+    console.warn('[MCA Lab Portal] Code executor warmup failed:', err.message);
+  });
+});
 
 // --- Start Server ---
 

@@ -1,5 +1,5 @@
 datasource db {
-  provider = "postgresql"
+  provider = "mongodb"
   url      = env("DATABASE_URL")
 }
 
@@ -21,7 +21,7 @@ enum SubmissionStatus {
 }
 
 model User {
-  id           String        @id @default(uuid())
+  id           String        @id @default(auto()) @map("_id") @db.ObjectId
   name         String
   email        String        @unique
   passwordHash String
@@ -35,14 +35,14 @@ model User {
 }
 
 model Problem {
-  id              String   @id @default(uuid())
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
   title           String
-  description     String   @db.Text // Markdown content
-  boilerplateCode String   @db.Text // Default structure provided to students
+  description     String   // Markdown content
+  boilerplateCode String   // Default structure provided to students
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  teacherId String
+  teacherId String @db.ObjectId
   teacher   User   @relation(fields: [teacherId], references: [id], onDelete: Cascade)
 
   testCases   TestCase[]
@@ -51,32 +51,32 @@ model Problem {
 }
 
 model TestCase {
-  id             String @id @default(uuid())
-  problemId      String
+  id             String  @id @default(auto()) @map("_id") @db.ObjectId
+  problemId      String  @db.ObjectId
   problem        Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
-  input          String  @db.Text
-  expectedOutput String  @db.Text
+  input          String
+  expectedOutput String
   isHidden       Boolean @default(true)
 }
 
 model HintRule {
-  id           String @id @default(uuid())
-  problemId    String
+  id           String  @id @default(auto()) @map("_id") @db.ObjectId
+  problemId    String  @db.ObjectId
   problem      Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
   regexPattern String
-  hintMessage  String  @db.Text
+  hintMessage  String
 }
 
 model Submission {
-  id            String           @id @default(uuid())
-  userId        String
+  id            String           @id @default(auto()) @map("_id") @db.ObjectId
+  userId        String           @db.ObjectId
   user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  problemId     String
+  problemId     String           @db.ObjectId
   problem       Problem          @relation(fields: [problemId], references: [id], onDelete: Cascade)
-  sourceCode    String           @db.Text
+  sourceCode    String
   languageId    Int              // Judge0 language code (e.g., 62 for Java, 71 for Python)
   status        SubmissionStatus @default(PENDING)
-  errorMessage  String?          @db.Text // Raw stderr or error trace from sandbox
+  errorMessage  String?          // Raw stderr or error trace from sandbox
   executionTime Float?           // CPU execution time in seconds from Judge0
   createdAt     DateTime         @default(now())
 
@@ -84,8 +84,8 @@ model Submission {
 }
 
 model TabViolation {
-  id        String   @id @default(uuid())
-  userId    String
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   timestamp DateTime @default(now())
   details   String   // Details about the tab switch infraction

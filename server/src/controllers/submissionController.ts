@@ -202,10 +202,8 @@ export const submitCode = async (
 
         if (
           result.statusId === Judge0Status.COMPILATION_ERROR ||
-          result.statusId === Judge0Status.RUNTIME_ERROR_SIGSEGV ||
-          result.statusId === Judge0Status.RUNTIME_ERROR_SIGXFSZ ||
-          result.statusId === Judge0Status.RUNTIME_ERROR_SIGKILL ||
-          result.statusId === Judge0Status.RUNTIME_ERROR_SIGXCPU
+          result.statusId === Judge0Status.RUNTIME_ERROR ||
+          result.statusId === Judge0Status.TIME_LIMIT_EXCEEDED
         ) {
           const errorText = result.compileOutput || result.stderr || 'Unknown error';
 

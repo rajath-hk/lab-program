@@ -9,12 +9,11 @@
     "start": "node dist/index.js",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
-    "prisma:migrate": "prisma migrate dev",
+    "prisma:migrate": "echo \"MongoDB uses prisma db push instead of Prisma Migrate\"",
     "prisma:studio": "prisma studio"
   },
   "dependencies": {
     "@prisma/client": "^6.0.0",
-    "axios": "^1.18.0",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
