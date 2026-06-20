@@ -1,0 +1,92 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  STUDENT
+  TEACHER
+}
+
+enum SubmissionStatus {
+  PENDING
+  ACCEPTED
+  WRONG_ANSWER
+  RUNTIME_ERROR
+  COMPILATION_ERROR
+}
+
+model User {
+  id           String        @id @default(uuid())
+  name         String
+  email        String        @unique
+  passwordHash String
+  role         Role          @default(STUDENT)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  submissions   Submission[]
+  problems      Problem[]       // Problems created by this user (if Teacher)
+  tabViolations TabViolation[]
+}
+
+model Problem {
+  id              String   @id @default(uuid())
+  title           String
+  description     String   @db.Text // Markdown content
+  boilerplateCode String   @db.Text // Default structure provided to students
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  teacherId String
+  teacher   User   @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+
+  testCases   TestCase[]
+  hintRules   HintRule[]
+  submissions Submission[]
+}
+
+model TestCase {
+  id             String @id @default(uuid())
+  problemId      String
+  problem        Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  input          String  @db.Text
+  expectedOutput String  @db.Text
+  isHidden       Boolean @default(true)
+}
+
+model HintRule {
+  id           String @id @default(uuid())
+  problemId    String
+  problem      Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  regexPattern String
+  hintMessage  String  @db.Text
+}
+
+model Submission {
+  id            String           @id @default(uuid())
+  userId        String
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  problemId     String
+  problem       Problem          @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  sourceCode    String           @db.Text
+  languageId    Int              // Judge0 language code (e.g., 62 for Java, 71 for Python)
+  status        SubmissionStatus @default(PENDING)
+  errorMessage  String?          @db.Text // Raw stderr or error trace from sandbox
+  executionTime Float?           // CPU execution time in seconds from Judge0
+  createdAt     DateTime         @default(now())
+
+  @@index([userId, problemId])
+}
+
+model TabViolation {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  timestamp DateTime @default(now())
+  details   String   // Details about the tab switch infraction
+}
