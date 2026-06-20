@@ -12,6 +12,12 @@ enum Role {
   TEACHER
 }
 
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
 enum SubmissionStatus {
   PENDING
   ACCEPTED
@@ -39,6 +45,11 @@ model Problem {
   title           String
   description     String   // Markdown content
   boilerplateCode String   // Default structure provided to students
+  difficulty Difficulty @default(MEDIUM)
+  tags String[] @default([])
+  timeLimit Int @default(15)
+  memoryLimit Int @default(256)
+  isPublic Boolean @default(true)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -84,6 +95,29 @@ model Submission {
 }
 
 model TabViolation {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  timestamp DateTime @default(now())
+  details   String   // Details about the tab switch infraction
+}
+
+// --- Problem Versioning ---
+model ProblemVersion {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  problemId     String   @db.ObjectId
+  problem       Problem  @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  versionNumber Int
+  title         String
+  description   String
+  boilerplateCode String
+  difficulty   Difficulty @default(MEDIUM)
+  tags        String[] @default([])
+  timeLimit   Int @default(15)
+  memoryLimit Int @default(256)
+  isPublic    Boolean @default(true)
+  createdAt    DateTime @default(now())
+}
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
   userId    String   @db.ObjectId
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)

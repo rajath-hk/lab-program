@@ -310,3 +310,103 @@ export const getTeacherProblems = async (
     next(error);
   }
 };
+
+/**
+ * GET /api/teacher/problems/:id/edit
+ * Returns full problem details for editing (teacher only).
+ */
+export const getProblemForEdit = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const problem = await prisma.problem.findUnique({
+      where: { id },
+      include: { testCases: true, hintRules: true },
+    });
+    if (!problem) {
+      res.status(404).json({ error: 'Problem not found' });
+      return;
+    }
+    res.json(problem);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * PUT /api/teacher/problems/:id
+ * Updates problem fields and stores a version snapshot.
+ */
+export const updateProblem = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const {
+      title,
+      description,
+      boilerplateCode,
+      difficulty,
+      tags,
+      timeLimit,
+      memoryLimit,
+      isPublic,
+    } = req.body as {
+      title?: string;
+      description?: string;
+      boilerplateCode?: string;
+      difficulty?: string;
+      tags?: string[];
+      timeLimit?: number;
+      memoryLimit?: number;
+      isPublic?: boolean;
+    };
+
+    const current = await prisma.problem.findUnique({ where: { id } });
+    if (!current) {
+      res.status(404).json({ error: 'Problem not found' });
+      return;
+    }
+
+    const existingVersions = await prisma.problemVersion.count({ where: { problemId: id } });
+    const nextVersion = existingVersions + 1;
+
+    await prisma.problemVersion.create({
+      data: {
+        problemId: id,
+        versionNumber: nextVersion,
+        title: current.title,
+        description: current.description,
+        boilerplateCode: current.boilerplateCode,
+        difficulty: current.difficulty,
+        tags: current.tags,
+        timeLimit: current.timeLimit,
+        memoryLimit: current.memoryLimit,
+        isPublic: current.isPublic,
+      },
+    });
+
+    const updateData: any = {};
+    if (title !== undefined) updateData.title = title;
+    if (description !== undefined) updateData.description = description;
+    if (boilerplateCode !== undefined) updateData.boilerplateCode = boilerplateCode;
+    if (difficulty !== undefined) updateData.difficulty = difficulty;
+    if (tags !== undefined) updateData.tags = tags;
+    if (timeLimit !== undefined) updateData.timeLimit = timeLimit;
+    if (memoryLimit !== undefined) updateData.memoryLimit = memoryLimit;
+    if (isPublic !== undefined) updateData.isPublic = isPublic;
+
+    const updated = await prisma.problem.update({
+      where: { id },
+      data: updateData,
+    });
+    res.json({ message: 'Problem updated', problem: updated });
+  } catch (error) {
+    next(error);
+  }
+};

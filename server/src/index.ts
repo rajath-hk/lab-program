@@ -5,6 +5,7 @@ import express from 'express';
 import cors from 'cors';
 import authRoutes from './routes/authRoutes';
 import problemRoutes from './routes/problemRoutes';
+import teacherStudentRoutes from './routes/teacherStudentRoutes';
 import studentRoutes from './routes/studentRoutes';
 import analyticsRoutes from './routes/analyticsRoutes';
 import assessmentRoutes from './routes/assessmentRoutes';
@@ -38,6 +39,7 @@ app.use('/api/auth', authRoutes);
 // --- Teacher Problem Routes ---
 
 app.use('/api/teacher/problems', problemRoutes);
+app.use('/api/teacher/students', teacherStudentRoutes);
 
 // --- Student Routes ---
 

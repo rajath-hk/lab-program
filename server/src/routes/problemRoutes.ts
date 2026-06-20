@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { verifyToken, requireTeacher } from '../middleware/auth';
-import { bulkUploadProblems, getTeacherProblems } from '../controllers/problemController';
+import { bulkUploadProblems, getTeacherProblems, getProblemForEdit, updateProblem } from '../controllers/problemController';
 
 const router = Router();
 
@@ -52,5 +52,17 @@ router.post(
  * Protected: Requires TEACHER role.
  */
 router.get('/', verifyToken, requireTeacher, getTeacherProblems);
+
+/**
+ * GET /api/teacher/problems/:id/edit
+ * Returns problem details for editing.
+ */
+router.get('/:id/edit', verifyToken, requireTeacher, getProblemForEdit);
+
+/**
+ * PUT /api/teacher/problems/:id
+ * Updates problem fields (teacher only).
+ */
+router.put('/:id', verifyToken, requireTeacher, updateProblem);
 
 export default router;
