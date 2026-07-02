@@ -3,14 +3,20 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider = "sqlite"
 }
 
 enum Role {
   ADMIN
   TEACHER
   STUDENT
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+  EXTREME
 }
 
 enum SubmissionStatus {
@@ -30,6 +36,20 @@ model User {
 
   student   Student?
   teacher   Teacher?
+  activityLogs ActivityLog[]
+}
+
+model ActivityLog {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  action    String
+  details   String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+  @@index([action])
 }
 
 model Department {
@@ -40,15 +60,15 @@ model Department {
 }
 
 model Student {
-  id           String   @id @default(cuid())
-  userId       String   @unique
-  user         User     @relation(fields: [userId], references: [id])
-  rollNumber   String   @unique
+  id           String     @id @default(cuid())
+  userId       String     @unique
+  user         User       @relation(fields: [userId], references: [id])
+  rollNumber   String     @unique
   departmentId String
   department   Department @relation(fields: [departmentId], references: [id])
   semester     Int
   submissions  Submission[]
-  createdAt    DateTime @default(now())
+  createdAt    DateTime   @default(now())
 }
 
 model Teacher {
@@ -61,28 +81,40 @@ model Teacher {
 }
 
 model Program {
-  id          String    @id @default(cuid())
-  title       String
-  description String
-  unlockDate  DateTime
-  deadline    DateTime?
-  teacherId   String
-  teacher     Teacher   @relation(fields: [teacherId], references: [id])
-  questions   Question[]
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id           String               @id @default(cuid())
+  title        String
+  description  String
+  unlockDate   DateTime
+  deadline     DateTime?
+  teacherId    String
+  teacher      Teacher              @relation(fields: [teacherId], references: [id])
+  questions    Question[]
+  bulkUploads  QuestionBulkUpload[]
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
 }
 
 model Question {
-  id           String    @id @default(cuid())
-  programId    String
-  program      Program   @relation(fields: [programId], references: [id])
-  title        String
-  description  String
-  orderNumber  Int
-  starterCode  String?
-  submissions  Submission[]
-  createdAt    DateTime  @default(now())
+  id          String       @id @default(cuid())
+  programId   String
+  program     Program      @relation(fields: [programId], references: [id])
+  title       String
+  description String
+  difficulty  Difficulty   @default(EASY)
+  orderNumber Int
+  starterCode String?
+  submissions Submission[]
+  createdAt   DateTime     @default(now())
+}
+
+model QuestionBulkUpload {
+  id          String   @id @default(cuid())
+  programId   String
+  program     Program  @relation(fields: [programId], references: [id])
+  fileName    String
+  questionCount Int
+  questions   String   // JSON array of uploaded question data
+  createdAt   DateTime @default(now())
 }
 
 model Submission {

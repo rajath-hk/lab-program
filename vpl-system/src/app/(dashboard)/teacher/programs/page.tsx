@@ -1,211 +1,418 @@
-"use client";
+"use client"
 
-import { useEffect, useState } from "react";
-import { Calendar, Clock, Plus, Edit, Trash2 } from "lucide-react";
-import { Card, CardHeader, CardContent, CardFooter } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { getProgramStatus } from "@/lib/programStatus";
-import { format } from "date-fns";
-import Link from "next/link";
+import { useEffect, useState, useCallback } from "react"
+import Link from "next/link"
+import {
+  Plus,
+  BookOpen,
+  FileCode,
+  Pencil,
+  Trash2,
+  X,
+  Loader2,
+  Calendar,
+  ArrowRight,
+} from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Card, CardContent } from "@/components/ui/card"
+import { cn } from "@/lib/utils"
 
 interface Program {
-  id: string;
-  title: string;
-  description: string;
-  unlockDate: string; // ISO
-  deadline?: string | null;
-  questionsCount: number;
+  id: string
+  title: string
+  description: string
+  unlockDate: string
+  deadline: string | null
+  createdAt: string
+  _count: { questions: number }
 }
 
-export default function TeacherPrograms() {
-  const [programs, setPrograms] = useState<Program[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState({
-    title: "",
-    description: "",
-    unlockDate: "",
-    deadline: "",
-  });
-  const [error, setError] = useState<string>("");
+export default function TeacherProgramsPage() {
+  const [programs, setPrograms] = useState<Program[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showModal, setShowModal] = useState(false)
+  const [editingProgram, setEditingProgram] = useState<Program | null>(null)
+  const [deletingProgram, setDeletingProgram] = useState<Program | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const fetchPrograms = async () => {
-    setLoading(true);
+  // Form state
+  const [formTitle, setFormTitle] = useState("")
+  const [formDescription, setFormDescription] = useState("")
+  const [formUnlockDate, setFormUnlockDate] = useState("")
+  const [formDeadline, setFormDeadline] = useState("")
+
+  const fetchPrograms = useCallback(async () => {
     try {
-      const res = await fetch("/api/teacher/programs");
-      if (!res.ok) throw new Error("Failed to load programs");
-      const data = await res.json();
-      setPrograms(data);
-    } catch (e: any) {
-      console.error(e);
+      const res = await fetch("/api/teacher/programs")
+      if (!res.ok) throw new Error("Failed to fetch programs")
+      setPrograms(await res.json())
+    } catch (err) {
+      console.error(err)
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }, [])
 
   useEffect(() => {
-    fetchPrograms();
-  }, []);
+    fetchPrograms()
+  }, [fetchPrograms])
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    setForm({ ...form, [e.target.name]: e.target.value });
-  };
+  function resetForm() {
+    setFormTitle("")
+    setFormDescription("")
+    setFormUnlockDate("")
+    setFormDeadline("")
+    setError(null)
+  }
 
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError("");
-    // basic client validation
-    if (!form.title || !form.description || !form.unlockDate) {
-      setError("Please fill required fields");
-      return;
-    }
+  function openCreateModal() {
+    resetForm()
+    setEditingProgram(null)
+    const tomorrow = new Date()
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    setFormUnlockDate(tomorrow.toISOString().slice(0, 16))
+    setShowModal(true)
+  }
+
+  function openEditModal(program: Program) {
+    setEditingProgram(program)
+    setFormTitle(program.title)
+    setFormDescription(program.description)
+    setFormUnlockDate(new Date(program.unlockDate).toISOString().slice(0, 16))
+    setFormDeadline(
+      program.deadline
+        ? new Date(program.deadline).toISOString().slice(0, 16)
+        : ""
+    )
+    setError(null)
+    setShowModal(true)
+  }
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault()
+    setSaving(true)
+    setError(null)
+
     try {
-      const res = await fetch("/api/teacher/programs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        setError(err.error?.[0]?.message || "Failed to create program");
-        return;
+      const body = {
+        title: formTitle,
+        description: formDescription,
+        unlockDate: formUnlockDate,
+        deadline: formDeadline || null,
       }
-      await fetchPrograms();
-      setShowModal(false);
-      setForm({ title: "", description: "", unlockDate: "", deadline: "" });
-      alert("Program created successfully");
-    } catch (e) {
-      console.error(e);
-      setError("Unexpected error");
-    }
-  };
 
-  const statusBadge = (prog: Program) => {
-    const status = getProgramStatus(new Date(prog.unlockDate), prog.deadline ? new Date(prog.deadline) : null);
-    const colors: Record<string, string> = {
-      LOCKED: "bg-gray-400",
-      ACTIVE: "bg-green-600",
-      ENDED: "bg-red-600",
-    };
+      const url = editingProgram
+        ? `/api/teacher/programs/${editingProgram.id}`
+        : "/api/teacher/programs"
+
+      const method = editingProgram ? "PUT" : "POST"
+
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || "Failed to save program")
+      }
+
+      setShowModal(false)
+      resetForm()
+      fetchPrograms()
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleDelete() {
+    if (!deletingProgram) return
+    setSaving(true)
+
+    try {
+      const res = await fetch(`/api/teacher/programs/${deletingProgram.id}`, {
+        method: "DELETE",
+      })
+
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || "Failed to delete program")
+      }
+
+      setDeletingProgram(null)
+      fetchPrograms()
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function formatDate(dateStr: string) {
+    return new Date(dateStr).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    })
+  }
+
+  function isUnlocked(unlockDate: string) {
+    return new Date(unlockDate) <= new Date()
+  }
+
+  if (loading) {
     return (
-      <span className={`rounded px-2 py-1 text-xs text-white ${colors[status]}`}> {status} </span>
-    );
-  };
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="size-8 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">My Programs</h1>
-        <Button onClick={() => setShowModal(true)}>
-          <Plus className="mr-2 h-4 w-4" /> Create Program
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Programs</h1>
+          <p className="mt-1 text-muted-foreground">
+            Create and manage programming assignments
+          </p>
+        </div>
+        <Button onClick={openCreateModal}>
+          <Plus className="size-4" />
+          New Program
         </Button>
       </div>
 
       {/* Programs Grid */}
-      {loading ? (
-        <p>Loading...</p>
-      ) : programs.length === 0 ? (
-        <div className="text-center py-8">
-          <p className="mb-4">No programs yet.</p>
-          <Button onClick={() => setShowModal(true)}>
-            <Plus className="mr-2 h-4 w-4" /> Create your first program
+      {programs.length === 0 ? (
+        <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-16 text-center">
+          <BookOpen className="size-12 text-muted-foreground/40" />
+          <h3 className="mt-4 text-sm font-medium">No programs yet</h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Create your first programming assignment.
+          </p>
+          <Button className="mt-4" onClick={openCreateModal}>
+            <Plus className="size-4" />
+            New Program
           </Button>
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {programs.map((p) => (
-            <Card key={p.id} className="flex flex-col justify-between">
-              <CardHeader>
-                <h3 className="text-lg font-semibold">{p.title}</h3>
-              </CardHeader>
-              <CardContent className="flex-1">
-                <p className="text-sm mb-2 line-clamp-2">{p.description}</p>
-                <div className="flex items-center space-x-2 text-xs text-gray-600 mb-2">
-                  <Calendar size={14} />
-                  <span>{format(new Date(p.unlockDate), "yyyy-MM-dd")}</span>
-                </div>
-                {p.deadline && (
-                  <div className="flex items-center space-x-2 text-xs text-gray-600 mb-2">
-                    <Clock size={14} />
-                    <span>{format(new Date(p.deadline), "yyyy-MM-dd")}</span>
-                  </div>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {programs.map((program) => {
+            const unlocked = isUnlocked(program.unlockDate)
+            return (
+              <Card
+                key={program.id}
+                className={cn(
+                  "group relative transition-all hover:shadow-md",
+                  !unlocked && "opacity-60"
                 )}
-                <div className="flex items-center space-x-2 text-sm">
-                  <span>Questions: {p.questionsCount}</span>
-                  {statusBadge(p)}
-                </div>
-              </CardContent>
-              <CardFooter className="flex justify-between">
-                <Link
-                  href={`/teacher/programs/${p.id}`}
-                  className="text-sm text-primary hover:underline"
-                >
-                  Manage Questions
-                </Link>
-                <Link href={`/teacher/programs/${p.id}/edit`} className="text-sm text-primary hover:underline">
-                  Edit
-                </Link>
-              </CardFooter>
-            </Card>
-          ))}
+              >
+                <CardContent className="p-5">
+                  <div className="flex items-start justify-between">
+                    <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                      <BookOpen className="size-5" />
+                    </div>
+                    <div className="flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={() => openEditModal(program)}
+                      >
+                        <Pencil className="size-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={() => setDeletingProgram(program)}
+                        className="text-destructive hover:text-destructive"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  <Link
+                    href={`/teacher/programs/${program.id}`}
+                    className="mt-3 block"
+                  >
+                    <h3 className="text-base font-semibold group-hover:text-primary">
+                      {program.title}
+                    </h3>
+                    <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
+                      {program.description}
+                    </p>
+                  </Link>
+
+                  <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1">
+                      <FileCode className="size-3.5" />
+                      {program._count.questions} question
+                      {program._count.questions !== 1 ? "s" : ""}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Calendar className="size-3.5" />
+                      {formatDate(program.unlockDate)}
+                    </span>
+                  </div>
+
+                  <Link
+                    href={`/teacher/programs/${program.id}`}
+                    className="mt-3 flex items-center justify-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-muted"
+                  >
+                    Manage Questions
+                    <ArrowRight className="size-3.5" />
+                  </Link>
+                </CardContent>
+              </Card>
+            )
+          })}
         </div>
       )}
 
-      {/* Create Program Modal */}
+      {/* Create/Edit Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-lg w-full max-w-md p-6 relative">
-            <button
-              onClick={() => setShowModal(false)}
-              className="absolute top-2 right-2 text-gray-500 hover:text-gray-700"
-            >
-              ✕
-            </button>
-            <h2 className="text-lg font-semibold mb-4">Create Program</h2>
-            <form onSubmit={handleCreate} className="space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-xl border bg-card shadow-lg">
+            <div className="flex items-center justify-between border-b px-6 py-4">
+              <h2 className="text-lg font-semibold">
+                {editingProgram ? "Edit Program" : "New Program"}
+              </h2>
+              <button
+                onClick={() => {
+                  setShowModal(false)
+                  resetForm()
+                }}
+                className="rounded-lg p-1 text-muted-foreground hover:bg-muted"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSave} className="space-y-4 p-6">
               <div>
-                <label className="block text-sm font-medium mb-1" htmlFor="title">
+                <label className="mb-1.5 block text-sm font-medium">
                   Title
                 </label>
-                <Input id="title" name="title" value={form.title} onChange={handleInputChange} required />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1" htmlFor="description">
-                  Description
-                </label>
-                <Textarea
-                  id="description"
-                  name="description"
-                  value={form.description}
-                  onChange={handleInputChange}
+                <Input
                   required
+                  value={formTitle}
+                  onChange={(e) => setFormTitle(e.target.value)}
+                  placeholder="e.g., Lab 1: Arrays & Pointers"
                 />
               </div>
+
               <div>
-                <label className="block text-sm font-medium mb-1" htmlFor="unlockDate">
-                  Unlock Date
+                <label className="mb-1.5 block text-sm font-medium">
+                  Description
                 </label>
-                <Input type="date" id="unlockDate" name="unlockDate" value={form.unlockDate} onChange={handleInputChange} required />
+                <textarea
+                  required
+                  value={formDescription}
+                  onChange={(e) => setFormDescription(e.target.value)}
+                  placeholder="Describe the programming assignment..."
+                  rows={3}
+                  className="h-20 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1.5 text-sm transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 placeholder:text-muted-foreground"
+                />
               </div>
-              <div>
-                <label className="block text-sm font-medium mb-1" htmlFor="deadline">
-                  Deadline (optional)
-                </label>
-                <Input type="date" id="deadline" name="deadline" value={form.deadline} onChange={handleInputChange} />
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium">
+                    Unlock Date
+                  </label>
+                  <Input
+                    required
+                    type="datetime-local"
+                    value={formUnlockDate}
+                    onChange={(e) => setFormUnlockDate(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium">
+                    Deadline (optional)
+                  </label>
+                  <Input
+                    type="datetime-local"
+                    value={formDeadline}
+                    onChange={(e) => setFormDeadline(e.target.value)}
+                  />
+                </div>
               </div>
-              {error && <p className="text-red-600 text-sm">{error}</p>}
-              <div className="flex justify-end space-x-2">
-                <Button type="button" variant="outline" onClick={() => setShowModal(false)}>
+
+              {error && (
+                <p className="rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  {error}
+                </p>
+              )}
+
+              <div className="flex justify-end gap-3 pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setShowModal(false)
+                    resetForm()
+                  }}
+                >
                   Cancel
                 </Button>
-                <Button type="submit">Create</Button>
+                <Button type="submit" disabled={saving}>
+                  {saving && <Loader2 className="size-4 animate-spin" />}
+                  {editingProgram ? "Save Changes" : "Create Program"}
+                </Button>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      {/* Delete Confirmation */}
+      {deletingProgram && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-xl border bg-card p-6 shadow-lg">
+            <h2 className="text-lg font-semibold">Delete Program</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Are you sure you want to delete{" "}
+              <strong>{deletingProgram.title}</strong>? This will also delete
+              all associated questions and submissions. This action cannot be
+              undone.
+            </p>
+
+            {error && (
+              <p className="mt-3 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {error}
+              </p>
+            )}
+
+            <div className="mt-6 flex justify-end gap-3">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setDeletingProgram(null)
+                  setError(null)
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                disabled={saving}
+                onClick={handleDelete}
+              >
+                {saving && <Loader2 className="size-4 animate-spin" />}
+                Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
-  );
+  )
 }

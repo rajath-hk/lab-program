@@ -1,112 +1,165 @@
-import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/apiAuth";
-import { z } from "zod";
+import { getServerSession } from "next-auth"
+import { NextResponse } from "next/server"
+import { authOptions } from "@/lib/auth"
+import { prisma } from "@/lib/prisma"
+import { logActivity } from "@/lib/activity-logger"
 
-const updateSchema = z.object({
-  title: z.string().min(3).optional(),
-  description: z.string().min(10).optional(),
-  unlockDate: z.string().optional().refine((val) => (val ? !isNaN(Date.parse(val)) : true)),
-  deadline: z
-    .string()
-    .optional()
-    .refine((val) => (val ? !isNaN(Date.parse(val)) : true))
-    .refine((val, ctx) => {
-      const unlock = ctx.parent.unlockDate ? new Date(ctx.parent.unlockDate) : null;
-      if (val && unlock && new Date(val) <= unlock) return false;
-      return true;
-    }, { message: "Deadline must be after unlock date" }),
-});
-
-export async function GET(req: Request, { params }: { params: { id: string } }) {
-  const { error, session } = await requireRole(["TEACHER"]);
-  if (error) return error;
+async function getTeacherSession() {
+  const session = await getServerSession(authOptions)
+  if (!session || session.user.role !== "TEACHER") return null
 
   const teacher = await prisma.teacher.findUnique({
-    where: { userId: session!.user.id },
-  });
-  if (!teacher) return NextResponse.json({ error: "Teacher not found" }, { status: 404 });
+    where: { userId: session.user.id },
+  })
+  if (!teacher) return null
 
-  const program = await prisma.program.findUnique({
-    where: { id: params.id },
-    include: { questions: true },
-  });
-  if (!program || program.teacherId !== teacher.id) {
-    return NextResponse.json({ error: "Program not found or unauthorized" }, { status: 404 });
-  }
-
-  return NextResponse.json({
-    id: program.id,
-    title: program.title,
-    description: program.description,
-    unlockDate: program.unlockDate,
-    deadline: program.deadline,
-    questions: program.questions.map((q) => ({
-      id: q.id,
-      title: q.title,
-      description: q.description,
-      orderNumber: q.orderNumber,
-    })),
-  });
+  return { session, teacher }
 }
 
-export async function PUT(req: Request, { params }: { params: { id: string } }) {
-  const { error, session } = await requireRole(["TEACHER"]);
-  if (error) return error;
-
-  const teacher = await prisma.teacher.findUnique({
-    where: { userId: session!.user.id },
-  });
-  if (!teacher) return NextResponse.json({ error: "Teacher not found" }, { status: 404 });
-
-  const program = await prisma.program.findUnique({ where: { id: params.id } });
-  if (!program || program.teacherId !== teacher.id) {
-    return NextResponse.json({ error: "Program not found or unauthorized" }, { status: 404 });
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const auth = await getTeacherSession()
+  if (!auth) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const data = await req.json();
-  const validation = updateSchema.safeParse(data);
-  if (!validation.success) {
-    return NextResponse.json({ error: validation.error.errors }, { status: 400 });
+  const { id } = await params
+
+  try {
+    const program = await prisma.program.findFirst({
+      where: { id, teacherId: auth.teacher.id },
+      include: {
+        questions: {
+          orderBy: { orderNumber: "asc" },
+        },
+        _count: { select: { questions: true } },
+      },
+    })
+
+    if (!program) {
+      return NextResponse.json({ error: "Program not found" }, { status: 404 })
+    }
+
+    // Get submission stats per question
+    const questionIds = program.questions.map((q) => q.id)
+    const submissionCounts = await prisma.submission.groupBy({
+      by: ["questionId"],
+      where: { questionId: { in: questionIds } },
+      _count: true,
+    })
+
+    const submissionMap = new Map(
+      submissionCounts.map((s) => [s.questionId, s._count])
+    )
+
+    const questionsWithStats = program.questions.map((q) => ({
+      ...q,
+      submissionCount: submissionMap.get(q.id) || 0,
+    }))
+
+    return NextResponse.json({
+      ...program,
+      questions: questionsWithStats,
+    })
+  } catch (error) {
+    console.error("Failed to fetch program:", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-
-  const { title, description, unlockDate, deadline } = validation.data;
-
-  const updated = await prisma.program.update({
-    where: { id: params.id },
-    data: {
-      ...(title && { title }),
-      ...(description && { description }),
-      ...(unlockDate && { unlockDate: new Date(unlockDate) }),
-      ...(deadline && { deadline: new Date(deadline) }),
-    },
-  });
-
-  return NextResponse.json(updated);
 }
 
-export async function DELETE(req: Request, { params }: { params: { id: string } }) {
-  const { error, session } = await requireRole(["TEACHER"]);
-  if (error) return error;
-
-  const teacher = await prisma.teacher.findUnique({
-    where: { userId: session!.user.id },
-  });
-  if (!teacher) return NextResponse.json({ error: "Teacher not found" }, { status: 404 });
-
-  const program = await prisma.program.findUnique({ where: { id: params.id } });
-  if (!program || program.teacherId !== teacher.id) {
-    return NextResponse.json({ error: "Program not found or unauthorized" }, { status: 404 });
+export async function PUT(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const auth = await getTeacherSession()
+  if (!auth) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  // Prevent delete if any submissions exist for its questions
-  const submissions = await prisma.submission.findFirst({
-    where: { question: { programId: program.id } },
-  });
-  if (submissions) {
-    return NextResponse.json({ error: "Cannot delete program with student submissions" }, { status: 400 });
+  const { id } = await params
+
+  try {
+    const existing = await prisma.program.findFirst({
+      where: { id, teacherId: auth.teacher.id },
+    })
+    if (!existing) {
+      return NextResponse.json({ error: "Program not found" }, { status: 404 })
+    }
+
+    const body = await request.json()
+    const { title, description, unlockDate, deadline } = body
+
+    const data: any = {}
+    if (title) data.title = title
+    if (description) data.description = description
+    if (unlockDate) data.unlockDate = new Date(unlockDate)
+    data.deadline = deadline ? new Date(deadline) : null
+
+    const program = await prisma.program.update({
+      where: { id },
+      data,
+      include: {
+        questions: { orderBy: { orderNumber: "asc" } },
+        _count: { select: { questions: true } },
+      },
+    })
+
+    await logActivity(
+      auth.session.user.id,
+      "UPDATE_PROGRAM",
+      `Updated program "${program.title}"`
+    )
+
+    return NextResponse.json(program)
+  } catch (error) {
+    console.error("Failed to update program:", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+  }
+}
+
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const auth = await getTeacherSession()
+  if (!auth) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  await prisma.program.delete({ where: { id: params.id } });
-  return NextResponse.json({ success: true });
+  const { id } = await params
+
+  try {
+    const existing = await prisma.program.findFirst({
+      where: { id, teacherId: auth.teacher.id },
+    })
+    if (!existing) {
+      return NextResponse.json({ error: "Program not found" }, { status: 404 })
+    }
+
+    // Delete in order: submissions -> questions -> program
+    await prisma.$transaction(async (tx) => {
+      const questions = await tx.question.findMany({
+        where: { programId: id },
+        select: { id: true },
+      })
+      const questionIds = questions.map((q) => q.id)
+
+      await tx.submission.deleteMany({ where: { questionId: { in: questionIds } } })
+      await tx.question.deleteMany({ where: { programId: id } })
+      await tx.program.delete({ where: { id } })
+    })
+
+    await logActivity(
+      auth.session.user.id,
+      "DELETE_PROGRAM",
+      `Deleted program "${existing.title}"`
+    )
+
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error("Failed to delete program:", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+  }
 }

@@ -1,92 +1,111 @@
-import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/apiAuth";
-import { z } from "zod";
+import { getServerSession } from "next-auth"
+import { NextResponse } from "next/server"
+import { authOptions } from "@/lib/auth"
+import { prisma } from "@/lib/prisma"
+import { logActivity } from "@/lib/activity-logger"
 
-// Validation schema for creating a question
-const questionSchema = z.object({
-  title: z.string().min(5),
-  description: z.string().min(20),
-  starterCode: z.string().optional(),
-  languages: z.array(z.enum(["C", "C++", "Java", "Python", "JavaScript"]))
-    .nonempty()
-    .default(["C", "C++", "Java", "Python", "JavaScript"]),
-});
+async function getTeacherSession() {
+  const session = await getServerSession(authOptions)
+  if (!session || session.user.role !== "TEACHER") return null
 
-export async function GET(req: Request, { params }: { params: { id: string } }) {
-  const { error, session } = await requireRole(["TEACHER"]);
-  if (error) return error;
+  const teacher = await prisma.teacher.findUnique({
+    where: { userId: session.user.id },
+  })
+  if (!teacher) return null
 
-  // Verify ownership
-  const teacher = await prisma.teacher.findUnique({ where: { userId: session!.user.id } });
-  if (!teacher) return NextResponse.json({ error: "Teacher not found" }, { status: 404 });
-
-  const program = await prisma.program.findUnique({ where: { id: params.id } });
-  if (!program || program.teacherId !== teacher.id) {
-    return NextResponse.json({ error: "Program not found or unauthorized" }, { status: 404 });
-  }
-
-  const questions = await prisma.question.findMany({
-    where: { programId: params.id },
-    orderBy: { orderNumber: "asc" },
-  });
-  return NextResponse.json(
-    questions.map((q) => ({
-      id: q.id,
-      title: q.title,
-      description: q.description,
-      starterCode: q.starterCode,
-      languages: q.languages,
-      orderNumber: q.orderNumber,
-    }))
-  );
+  return { session, teacher }
 }
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
-  const { error, session } = await requireRole(["TEACHER"]);
-  if (error) return error;
-
-  const teacher = await prisma.teacher.findUnique({ where: { userId: session!.user.id } });
-  if (!teacher) return NextResponse.json({ error: "Teacher not found" }, { status: 404 });
-
-  const program = await prisma.program.findUnique({ where: { id: params.id } });
-  if (!program || program.teacherId !== teacher.id) {
-    return NextResponse.json({ error: "Program not found or unauthorized" }, { status: 404 });
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const auth = await getTeacherSession()
+  if (!auth) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  // Enforce max 10 questions
-  const count = await prisma.question.count({ where: { programId: params.id } });
-  if (count >= 10) {
-    return NextResponse.json({ error: "Maximum 10 questions reached" }, { status: 400 });
+  const { id } = await params
+
+  try {
+    // Verify the program belongs to this teacher
+    const program = await prisma.program.findFirst({
+      where: { id, teacherId: auth.teacher.id },
+    })
+    if (!program) {
+      return NextResponse.json({ error: "Program not found" }, { status: 404 })
+    }
+
+    const questions = await prisma.question.findMany({
+      where: { programId: id },
+      orderBy: { orderNumber: "asc" },
+      include: {
+        _count: { select: { submissions: true } },
+      },
+    })
+
+    return NextResponse.json(questions)
+  } catch (error) {
+    console.error("Failed to fetch questions:", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+  }
+}
+
+export async function POST(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const auth = await getTeacherSession()
+  if (!auth) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const json = await req.json();
-  const parse = questionSchema.safeParse(json);
-  if (!parse.success) {
-    return NextResponse.json({ error: parse.error.errors }, { status: 400 });
+  const { id } = await params
+
+  try {
+    const program = await prisma.program.findFirst({
+      where: { id, teacherId: auth.teacher.id },
+    })
+    if (!program) {
+      return NextResponse.json({ error: "Program not found" }, { status: 404 })
+    }
+
+    const body = await request.json()
+    const { title, description, difficulty, starterCode } = body
+
+    if (!title || !description) {
+      return NextResponse.json({ error: "Title and description are required" }, { status: 400 })
+    }
+
+    // Get the next order number
+    const lastQuestion = await prisma.question.findFirst({
+      where: { programId: id },
+      orderBy: { orderNumber: "desc" },
+      select: { orderNumber: true },
+    })
+
+    const nextOrderNumber = (lastQuestion?.orderNumber ?? 0) + 1
+
+    const question = await prisma.question.create({
+      data: {
+        title,
+        description,
+        difficulty: difficulty || "EASY",
+        starterCode: starterCode || null,
+        orderNumber: nextOrderNumber,
+        programId: id,
+      },
+    })
+
+    await logActivity(
+      auth.session.user.id,
+      "CREATE_QUESTION",
+      `Created question "${question.title}" in program "${program.title}"`
+    )
+
+    return NextResponse.json(question, { status: 201 })
+  } catch (error) {
+    console.error("Failed to create question:", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-
-  const { title, description, starterCode, languages } = parse.data;
-
-  const orderNumber = count + 1;
-
-  const question = await prisma.question.create({
-    data: {
-      title,
-      description,
-      starterCode,
-      languages,
-      orderNumber,
-      program: { connect: { id: params.id } },
-    },
-  });
-
-  return NextResponse.json({
-    id: question.id,
-    title: question.title,
-    description: question.description,
-    starterCode: question.starterCode,
-    languages: question.languages,
-    orderNumber: question.orderNumber,
-  });
 }

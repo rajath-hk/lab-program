@@ -1,12 +1,12 @@
 export function getRoleDashboard(role: string): string {
   switch (role) {
     case "ADMIN":
-      return "/admin";
+      return "/admin"
     case "TEACHER":
-      return "/teacher";
+      return "/teacher"
     case "STUDENT":
-      return "/student";
+      return "/student"
     default:
-      return "/login";
+      return "/login"
   }
 }

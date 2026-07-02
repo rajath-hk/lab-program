@@ -1,13 +1,17 @@
-import { PrismaClient } from "@prisma/client";
-import bcrypt from "bcryptjs";
+import { PrismaClient } from "@prisma/client"
+import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3"
+import bcrypt from "bcryptjs"
 
-const prisma = new PrismaClient();
+const adapter = new PrismaBetterSqlite3({
+  url: process.env.DATABASE_URL!,
+})
+const prisma = new PrismaClient({ adapter })
 
 async function main() {
-  const hashedPassword = await bcrypt.hash("password123", 10);
+  const hashedPassword = await bcrypt.hash("password123", 10)
 
-  // Admin
-  await prisma.user.upsert({
+  // Create Admin
+  const admin = await prisma.user.upsert({
     where: { email: "admin@vpl.com" },
     update: {},
     create: {
@@ -16,9 +20,10 @@ async function main() {
       password: hashedPassword,
       role: "ADMIN",
     },
-  });
+  })
+  console.log(`Created admin: ${admin.email}`)
 
-  // Teacher
+  // Create Teacher
   const teacherUser = await prisma.user.upsert({
     where: { email: "teacher@vpl.com" },
     update: {},
@@ -28,7 +33,7 @@ async function main() {
       password: hashedPassword,
       role: "TEACHER",
     },
-  });
+  })
 
   await prisma.teacher.upsert({
     where: { employeeId: "EMP001" },
@@ -37,9 +42,10 @@ async function main() {
       userId: teacherUser.id,
       employeeId: "EMP001",
     },
-  });
+  })
+  console.log(`Created teacher: ${teacherUser.email}`)
 
-  // Department
+  // Create Department
   const dept = await prisma.department.upsert({
     where: { code: "MC" },
     update: {},
@@ -47,9 +53,10 @@ async function main() {
       name: "Master of Computer Applications",
       code: "MC",
     },
-  });
+  })
+  console.log(`Created department: ${dept.name}`)
 
-  // Student
+  // Create Student
   const studentUser = await prisma.user.upsert({
     where: { email: "student@vpl.com" },
     update: {},
@@ -59,7 +66,7 @@ async function main() {
       password: hashedPassword,
       role: "STUDENT",
     },
-  });
+  })
 
   await prisma.student.upsert({
     where: { rollNumber: "1AM25MC001" },
@@ -70,25 +77,15 @@ async function main() {
       departmentId: dept.id,
       semester: 1,
     },
-  });
+  })
+  console.log(`Created student: ${studentUser.name} (roll: 1AM25MC001)`)
 
-  console.log("✅ Seed complete");
-  console.log(
-    "Admin    → email: admin@vpl.com      | password: password123"
-  );
-  console.log(
-    "Teacher  → email: teacher@vpl.com    | password: password123"
-  );
-  console.log(
-    "Student  → roll:  1AM25MC001          | password: password123"
-  );
+  console.log("\n✅ Seed complete")
+  console.log("Admin   → email: admin@vpl.com      | password: password123")
+  console.log("Teacher → email: teacher@vpl.com    | password: password123")
+  console.log("Student → roll:  1AM25MC001          | password: password123")
 }
 
 main()
-  .catch((e) => {
-    console.error(e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+  .catch(console.error)
+  .finally(() => prisma.$disconnect())
