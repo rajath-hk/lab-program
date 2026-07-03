@@ -2,6 +2,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { redirect } from "next/navigation"
 import { SidebarNav } from "@/components/shared/sidebar-nav"
+import { DashboardMain } from "./dashboard-main"
 
 export default async function DashboardLayout({
   children,
@@ -17,9 +18,7 @@ export default async function DashboardLayout({
   return (
     <div className="flex min-h-screen">
       <SidebarNav user={session.user} />
-      <main className="flex-1 overflow-auto">
-        <div className="mx-auto max-w-7xl p-6">{children}</div>
-      </main>
+      <DashboardMain>{children}</DashboardMain>
     </div>
   )
 }

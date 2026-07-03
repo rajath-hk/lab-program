@@ -39,9 +39,9 @@ interface StudentStats {
 }
 
 const statusColors: Record<string, string> = {
-  PENDING: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
-  APPROVED: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-  REJECTED: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+  PENDING: "bg-pending-bg/15 text-pending border border-pending/20",
+  APPROVED: "bg-approved-bg/15 text-approved border border-approved/20",
+  REJECTED: "bg-rejected-bg/15 text-rejected border border-rejected/20",
 }
 
 const statusIcons: Record<string, React.ElementType> = {
@@ -71,115 +71,120 @@ export default function StudentDashboardPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="size-8 animate-spin text-muted-foreground" />
+      <div className="flex items-center justify-center min-h-[50vh]">
+        <Loader2 className="size-6 animate-spin text-muted-foreground" />
       </div>
     )
   }
 
   if (!stats) {
     return (
-      <div className="py-20 text-center">
-        <p className="text-muted-foreground">Failed to load dashboard data</p>
+      <div className="flex items-center justify-center min-h-[50vh]">
+        <p className="text-muted-foreground text-sm">Failed to load dashboard data</p>
       </div>
     )
   }
 
   return (
     <div className="space-y-8">
-      {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Student Dashboard</h1>
-        <p className="mt-1 text-muted-foreground">
+        <h1 className="text-xl font-semibold tracking-tight">
+          Student Dashboard
+        </h1>
+        <p className="mt-1 text-sm text-muted-foreground">
           View your programs, write code, and track your submissions
         </p>
       </div>
 
-      {/* Info bar */}
-      <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-        <span className="flex items-center gap-1.5">
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-muted-foreground">
+        <span className="flex items-center gap-2">
           <Building2 className="size-4" />
           {stats.department}
         </span>
-        <span className="flex items-center gap-1.5">
+        <span className="flex items-center gap-2">
           <GraduationCap className="size-4" />
           Semester {stats.semester}
         </span>
       </div>
 
-      {/* Stats Grid */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Programs Available
+        <Card className="shadow-none ring-1 ring-border">
+          <CardHeader className="flex flex-row items-center justify-between pb-2 pt-5 px-5 space-y-0">
+            <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              Available
             </CardTitle>
-            <div className="rounded-lg bg-blue-500/10 p-1.5 text-blue-600 ring-1 ring-blue-500/20">
-              <BookOpen className="size-4" />
+            <div className="rounded-md bg-info-bg/15 p-1.5 text-info">
+              <BookOpen className="size-3.5" />
             </div>
           </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">{stats.availablePrograms}</div>
-            <p className="text-xs text-muted-foreground">
-              of {stats.totalPrograms} total
+          <CardContent className="pb-5 px-5">
+            <div className="text-2xl font-bold tracking-tight tabular-nums">
+              {stats.availablePrograms}
+            </div>
+            <p className="mt-1 text-[12px] text-muted-foreground">
+              of {stats.totalPrograms} total programs
             </p>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
+        <Card className="shadow-none ring-1 ring-border">
+          <CardHeader className="flex flex-row items-center justify-between pb-2 pt-5 px-5 space-y-0">
+            <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
               Submissions
             </CardTitle>
-            <div className="rounded-lg bg-purple-500/10 p-1.5 text-purple-600 ring-1 ring-purple-500/20">
-              <FileCode className="size-4" />
+            <div className="rounded-md bg-muted p-1.5 text-muted-foreground">
+              <FileCode className="size-3.5" />
             </div>
           </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">{stats.totalSubmissions}</div>
+          <CardContent className="pb-5 px-5">
+            <div className="text-2xl font-bold tracking-tight tabular-nums">
+              {stats.totalSubmissions}
+            </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
+        <Card className="shadow-none ring-1 ring-border">
+          <CardHeader className="flex flex-row items-center justify-between pb-2 pt-5 px-5 space-y-0">
+            <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
               Approved
             </CardTitle>
-            <div className="rounded-lg bg-green-500/10 p-1.5 text-green-600 ring-1 ring-green-500/20">
-              <CheckCircle2 className="size-4" />
+            <div className="rounded-md bg-approved-bg/15 p-1.5 text-approved">
+              <CheckCircle2 className="size-3.5" />
             </div>
           </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">{stats.approvedCount}</div>
+          <CardContent className="pb-5 px-5">
+            <div className="text-2xl font-bold tracking-tight tabular-nums">
+              {stats.approvedCount}
+            </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Pending Review
+        <Card className="shadow-none ring-1 ring-border">
+          <CardHeader className="flex flex-row items-center justify-between pb-2 pt-5 px-5 space-y-0">
+            <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              Pending
             </CardTitle>
-            <div className="rounded-lg bg-amber-500/10 p-1.5 text-amber-600 ring-1 ring-amber-500/20">
-              <Clock className="size-4" />
+            <div className="rounded-md bg-pending-bg/15 p-1.5 text-pending">
+              <Clock className="size-3.5" />
             </div>
           </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">{stats.pendingCount}</div>
+          <CardContent className="pb-5 px-5">
+            <div className="text-2xl font-bold tracking-tight tabular-nums">
+              {stats.pendingCount}
+            </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Two-column layout */}
       <div className="grid gap-6 lg:grid-cols-2">
-        {/* Quick actions */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Quick Actions</CardTitle>
+        <Card className="shadow-none ring-1 ring-border">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-semibold">Quick Actions</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <Link href="/student/programs">
-              <Button variant="default" className="w-full justify-between">
-                <span className="flex items-center gap-2">
+              <Button variant="default" size="lg" className="w-full justify-between">
+                <span className="flex items-center gap-2 text-sm">
                   <BookOpen className="size-4" />
                   Browse Programs
                 </span>
@@ -187,8 +192,8 @@ export default function StudentDashboardPage() {
               </Button>
             </Link>
             <Link href="/student/submissions">
-              <Button variant="outline" className="w-full justify-between">
-                <span className="flex items-center gap-2">
+              <Button variant="outline" size="lg" className="w-full justify-between">
+                <span className="flex items-center gap-2 text-sm">
                   <FileCode className="size-4" />
                   View My Submissions
                 </span>
@@ -198,38 +203,37 @@ export default function StudentDashboardPage() {
           </CardContent>
         </Card>
 
-        {/* Recent Submissions */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>Recent Submissions</CardTitle>
+        <Card className="shadow-none ring-1 ring-border">
+          <CardHeader className="flex flex-row items-center justify-between pb-3">
+            <CardTitle className="text-sm font-semibold">Recent Activity</CardTitle>
             <Link href="/student/submissions">
-              <Button variant="ghost" size="sm">
-                View all <ArrowRight className="ml-1 size-3.5" />
+              <Button variant="ghost" size="xs" className="h-6 text-[11px] text-muted-foreground hover:text-foreground">
+                View all <ArrowRight className="ml-0.5 size-3" />
               </Button>
             </Link>
           </CardHeader>
           <CardContent>
-            <div className="space-y-3">
+            <div className="space-y-2">
               {stats.recentSubmissions.map((sub) => {
                 const StatusIcon = statusIcons[sub.status] || Clock
                 return (
                   <Link
                     key={sub.id}
                     href={`/student/submissions/${sub.id}`}
-                    className="block rounded-lg border p-3 transition-colors hover:bg-muted/50"
+                    className="block rounded-md ring-1 ring-border px-4 py-3 transition-colors hover:bg-muted/50"
                   >
-                    <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">
+                        <p className="truncate text-[13px] font-medium">
                           {sub.question.title}
                         </p>
-                        <p className="truncate text-xs text-muted-foreground">
+                        <p className="mt-0.5 truncate text-[12px] text-muted-foreground">
                           {sub.question.program.title}
                         </p>
                       </div>
                       <span
                         className={cn(
-                          "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase",
+                          "inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-medium capitalize",
                           statusColors[sub.status]
                         )}
                       >
@@ -241,7 +245,7 @@ export default function StudentDashboardPage() {
                 )
               })}
               {stats.recentSubmissions.length === 0 && (
-                <p className="py-4 text-center text-sm text-muted-foreground">
+                <p className="py-8 text-center text-xs text-muted-foreground">
                   No submissions yet. Start by browsing programs!
                 </p>
               )}

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useRef } from "react"
 import { useParams, useRouter } from "next/navigation"
 import dynamic from "next/dynamic"
 import {
@@ -15,15 +15,23 @@ import {
   AlertCircle,
   Info,
   Keyboard,
+  ChevronDown,
+  ChevronRight,
+  ChevronLeft,
+  FileCode,
+  BookOpen,
+  Save,
+  Undo2,
+  X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
+import { Panel, Group, Separator } from "react-resizable-panels"
 
 // Dynamically import Monaco editor (no SSR)
 const MonacoEditor = dynamic(
   () => import("@monaco-editor/react").then((mod) => mod.default),
-  { ssr: false, loading: () => <div className="h-[500px] animate-pulse rounded-lg bg-muted" /> }
+  { ssr: false, loading: () => <div className="h-full w-full animate-pulse bg-secondary" /> }
 )
 
 interface QuestionDetail {
@@ -48,16 +56,38 @@ interface SubmissionResult {
 }
 
 const statusColors: Record<string, string> = {
-  PENDING: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
-  APPROVED: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-  REJECTED: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+  PENDING: "text-pending",
+  APPROVED: "text-approved",
+  REJECTED: "text-rejected",
 }
 
-const difficultyConfig: Record<string, { label: string; color: string }> = {
-  EASY: { label: "Easy", color: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" },
-  MEDIUM: { label: "Medium", color: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" },
-  HARD: { label: "Hard", color: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400" },
-  EXTREME: { label: "Extreme", color: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" },
+const statusBgColors: Record<string, string> = {
+  PENDING: "bg-pending-bg/15 border-pending/20",
+  APPROVED: "bg-approved-bg/15 border-approved/20",
+  REJECTED: "bg-rejected-bg/15 border-rejected/20",
+}
+
+const difficultyConfig: Record<string, { label: string; color: string; bgColor: string }> = {
+  EASY: { 
+    label: "Easy", 
+    color: "text-approved", 
+    bgColor: "bg-approved-bg/15 text-approved border border-approved/10" 
+  },
+  MEDIUM: { 
+    label: "Medium", 
+    color: "text-pending", 
+    bgColor: "bg-pending-bg/15 text-pending border border-pending/10" 
+  },
+  HARD: { 
+    label: "Hard", 
+    color: "text-rejected", 
+    bgColor: "bg-rejected-bg/15 text-rejected border border-rejected/10" 
+  },
+  EXTREME: { 
+    label: "Extreme", 
+    color: "text-info", 
+    bgColor: "bg-info-bg/15 text-info border border-info/10" 
+  },
 }
 
 const SUPPORTED_LANGUAGES = [
@@ -71,6 +101,48 @@ const SUPPORTED_LANGUAGES = [
   { id: "go", label: "Go", ext: ".go" },
   { id: "plaintext", label: "Plain Text", ext: ".txt" },
 ]
+
+type ConsoleTab = "testcase" | "output" | "submission"
+
+// --- localStorage draft helpers ---
+const DRAFT_PREFIX = "vpl-draft-"
+
+interface DraftData {
+  code: string
+  language: string
+  savedAt: number
+}
+
+function getDraftKey(questionId: string) {
+  return `${DRAFT_PREFIX}${questionId}`
+}
+
+function loadDraft(questionId: string): DraftData | null {
+  try {
+    const raw = localStorage.getItem(getDraftKey(questionId))
+    if (!raw) return null
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
+function saveDraft(questionId: string, code: string, language: string) {
+  try {
+    const data: DraftData = { code, language, savedAt: Date.now() }
+    localStorage.setItem(getDraftKey(questionId), JSON.stringify(data))
+  } catch {
+    // localStorage may be full or unavailable
+  }
+}
+
+function clearDraft(questionId: string) {
+  try {
+    localStorage.removeItem(getDraftKey(questionId))
+  } catch {
+    // ignore
+  }
+}
 
 export default function CodeEditorPage() {
   const params = useParams()
@@ -91,7 +163,6 @@ export default function CodeEditorPage() {
   // Run state
   const [running, setRunning] = useState(false)
   const [stdin, setStdin] = useState("")
-  const [showStdin, setShowStdin] = useState(true)
   const [runResult, setRunResult] = useState<{
     output: string
     stdout: string
@@ -100,6 +171,29 @@ export default function CodeEditorPage() {
     compileOutput: string | null
   } | null>(null)
   const [runError, setRunError] = useState<string | null>(null)
+
+  // Console state
+  const [consoleTab, setConsoleTab] = useState<ConsoleTab>("testcase")
+  const [consoleOpen, setConsoleOpen] = useState(true)
+
+  // Panel ref for programmatic collapse/expand
+  const descPanelRef = useRef<{ collapse: () => void; expand: () => void; isCollapsed: () => boolean } | null>(null)
+  const [descriptionCollapsed, setDescriptionCollapsed] = useState(false)
+
+  // Editor font size
+  const [fontSize, setFontSize] = useState(14)
+
+  // Draft / auto-save state
+  const [hasDraft, setHasDraft] = useState(false)
+  const [draftInfo, setDraftInfo] = useState<DraftData | null>(null)
+  const [showDraftBanner, setShowDraftBanner] = useState(false)
+  const [autoSaving, setAutoSaving] = useState(false)
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const initialLoadDoneRef = useRef(false)
+
+  // Refs for keyboard shortcuts (always point to latest callbacks)
+  const handleRunRef = useRef<() => Promise<void>>(handleRun)
+  const handleSubmitRef = useRef<() => Promise<void>>(handleSubmit)
 
   useEffect(() => {
     setMounted(true)
@@ -145,15 +239,67 @@ export default function CodeEditorPage() {
     fetchQuestion()
   }, [fetchQuestion])
 
+  // Initialize panel state after mounting
+  useEffect(() => {
+    if (descPanelRef.current && descriptionCollapsed) {
+      descPanelRef.current.expand();
+      setDescriptionCollapsed(false);
+    }
+  }, []);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      const isCtrlOrCmd = e.ctrlKey || e.metaKey
+
+      // Ctrl+Enter → Run code
+      if (isCtrlOrCmd && e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault()
+        e.stopPropagation()
+        // Don't run if Monaco editor is in the middle of a composition (e.g., IME input)
+        if (e.isComposing) return
+        handleRunRef.current()
+        return
+      }
+
+      // Ctrl+Shift+Enter → Submit
+      if (isCtrlOrCmd && e.key === "Enter" && e.shiftKey) {
+        e.preventDefault()
+        e.stopPropagation()
+        handleSubmitRef.current()
+        return
+      }
+
+      // Ctrl+B → Toggle description panel
+      if (isCtrlOrCmd && e.key === "b") {
+        e.preventDefault()
+        if (descPanelRef.current?.isCollapsed()) {
+          descPanelRef.current?.expand()
+        } else {
+          descPanelRef.current?.collapse()
+        }
+        return
+      }
+    }
+
+    // Use capture phase to intercept before Monaco
+    document.addEventListener("keydown", handleKeyDown, { capture: true })
+    return () => document.removeEventListener("keydown", handleKeyDown, { capture: true })
+  }, []) // Stable — all deps accessed through refs
+
   async function handleRun() {
     if (!code.trim()) {
       setRunError("Please write some code before running.")
+      setConsoleTab("output")
+      setConsoleOpen(true)
       return
     }
 
     setRunning(true)
     setRunResult(null)
     setRunError(null)
+    setConsoleTab("output")
+    setConsoleOpen(true)
 
     try {
       const res = await fetch("/api/execute", {
@@ -178,6 +324,8 @@ export default function CodeEditorPage() {
   async function handleSubmit() {
     if (!code.trim()) {
       setSubmitError("Please write some code before submitting.")
+      setConsoleTab("submission")
+      setConsoleOpen(true)
       return
     }
 
@@ -209,6 +357,13 @@ export default function CodeEditorPage() {
         createdAt: result.createdAt,
         language: result.language,
       })
+      // Clear draft on successful submission
+      clearDraft(questionId)
+      setHasDraft(false)
+      setDraftInfo(null)
+      setShowDraftBanner(false)
+      setConsoleTab("submission")
+      setConsoleOpen(true)
     } catch (err: any) {
       setSubmitError(err.message)
     } finally {
@@ -218,6 +373,71 @@ export default function CodeEditorPage() {
 
   function handleEditorChange(value: string | undefined) {
     if (value !== undefined) setCode(value)
+  }
+
+  // Keep refs up to date
+  handleRunRef.current = handleRun
+  handleSubmitRef.current = handleSubmit
+
+  // --- Auto-save draft to localStorage ---
+  useEffect(() => {
+    // Wait until question is fully loaded and we have code set
+    if (!mounted || !question) return
+
+    // Clear any pending timer
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current)
+    }
+
+    // Debounce by 1 second
+    autoSaveTimerRef.current = setTimeout(() => {
+      saveDraft(questionId, code, language)
+      setAutoSaving(false)
+      setHasDraft(true)
+    }, 1000)
+
+    setAutoSaving(true)
+
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current)
+      }
+    }
+  }, [code, language, mounted, question, questionId])
+
+  // --- Check for existing draft on question load ---
+  useEffect(() => {
+    if (!question || mounted === false || initialLoadDoneRef.current) return
+    initialLoadDoneRef.current = true
+
+    // Only check draft if there's no existing submission (don't overwrite submitted code)
+    if (submission) return
+
+    const draft = loadDraft(questionId)
+    if (draft && draft.code.trim()) {
+      // Only show banner if draft differs from current code
+      const starterOrEmpty = question.starterCode || ""
+      if (draft.code !== starterOrEmpty) {
+        setHasDraft(true)
+        setDraftInfo(draft)
+        setShowDraftBanner(true)
+      }
+    }
+  }, [question, mounted, submission, questionId])
+
+  function handleRestoreDraft() {
+    if (!draftInfo) return
+    setCode(draftInfo.code)
+    setLanguage(draftInfo.language)
+    setShowDraftBanner(false)
+    setHasDraft(false)
+  }
+
+  function handleDiscardDraft() {
+    clearDraft(questionId)
+    setShowDraftBanner(false)
+    setHasDraft(false)
+    setDraftInfo(null)
   }
 
   function formatDate(dateStr: string) {
@@ -232,335 +452,676 @@ export default function CodeEditorPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="size-8 animate-spin text-muted-foreground" />
+      <div className="flex h-screen w-full items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="size-8 animate-spin text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">Loading problem...</p>
+        </div>
       </div>
     )
   }
 
   if (error || !question) {
     return (
-      <div className="py-20 text-center">
-        <AlertCircle className="mx-auto size-10 text-muted-foreground/40" />
-        <p className="mt-3 text-muted-foreground">{error || "Question not found"}</p>
-        <Button
-          variant="outline"
-          className="mt-4"
-          onClick={() => router.push(`/student/programs/${programId}`)}
-        >
-          Back to Program
-        </Button>
+      <div className="flex h-screen w-full items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3 text-center">
+          <AlertCircle className="size-10 text-muted-foreground/30" />
+          <p className="text-sm text-muted-foreground">{error || "Question not found"}</p>
+          <Button
+            variant="outline"
+            onClick={() => router.push(`/student/programs/${programId}`)}
+          >
+            Back to Program
+          </Button>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-start gap-4">
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => router.push(`/student/programs/${programId}`)}
-        >
-          <ArrowLeft className="size-4" />
-        </Button>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-3">
-            <span className="flex size-7 items-center justify-center rounded-lg bg-primary/10 text-xs font-medium text-primary">
-              {question.orderNumber}
-            </span>
-            <h1 className="text-xl font-bold tracking-tight truncate">
-              {question.title}
-            </h1>
-            {question.difficulty && difficultyConfig[question.difficulty] && (
-              <span
-                className={cn(
-                  "inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold shrink-0",
-                  difficultyConfig[question.difficulty].color
-                )}
-              >
-                {difficultyConfig[question.difficulty].label}
-              </span>
-            )}
-          </div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {question.program.title}
-          </p>
-        </div>
-
-        {/* Submission status badge */}
-        {submission && (
-          <span
-            className={cn(
-              "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold uppercase",
-              statusColors[submission.status]
-            )}
-          >
-            {submission.status === "PENDING" && <Clock className="size-3.5" />}
-            {submission.status === "APPROVED" && (
-              <CheckCircle2 className="size-3.5" />
-            )}
-            {submission.status === "REJECTED" && (
-              <XCircle className="size-3.5" />
-            )}
-            {submission.status}
+    <div className="flex h-screen w-full flex-col bg-background">
+      {/* ===== DRAFT RESTORE BANNER ===== */}
+      {showDraftBanner && draftInfo && (
+        <div className="flex shrink-0 items-center gap-3 border-b border-pending/30 bg-pending-bg/10 px-4 py-2 text-sm">
+          <Save className="size-4 text-pending" />
+          <span className="text-foreground">
+            You have an unsaved draft from{" "}
+            {new Date(draftInfo.savedAt).toLocaleTimeString("en-US", {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+            .
           </span>
-        )}
-      </div>
+          <Button
+            size="xs"
+            variant="outline"
+            onClick={handleRestoreDraft}
+            className="h-7 gap-1 border-pending/30 text-pending hover:bg-pending-bg/20"
+          >
+            <Undo2 className="size-3" />
+            Restore Draft
+          </Button>
+          <Button
+            size="xs"
+            variant="ghost"
+            onClick={handleDiscardDraft}
+            className="h-7 text-pending hover:bg-pending-bg/20"
+          >
+            <X className="size-3" />
+            Discard
+          </Button>
+        </div>
+      )}
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Left: Editor */}
-        <div className="space-y-4 lg:col-span-2">
-          {/* Monaco Editor */}
-          <Card className="overflow-hidden">
-            <CardHeader className="flex flex-row items-center justify-between border-b bg-muted/30 px-4 py-2.5">
-              <CardTitle className="text-sm font-medium">Code Editor</CardTitle>
-              <div className="flex items-center gap-2">
-                <select
-                  value={language}
-                  onChange={(e) => setLanguage(e.target.value)}
-                  className="h-7 rounded-md border border-input bg-background px-2 text-xs outline-none"
-                >
-                  {SUPPORTED_LANGUAGES.map((lang) => (
-                    <option key={lang.id} value={lang.id}>
-                      {lang.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              {mounted && (
-                <MonacoEditor
-                  height="500px"
-                  language={language}
-                  value={code}
-                  onChange={handleEditorChange}
-                  theme="vs-dark"
-                  options={{
-                    minimap: { enabled: false },
-                    fontSize: 14,
-                    lineNumbers: "on",
-                    scrollBeyondLastLine: false,
-                    automaticLayout: true,
-                    tabSize: 2,
-                    wordWrap: "on",
-                    padding: { top: 12 },
-                  }}
-                />
+      {/* ===== TOP HEADER BAR ===== */}
+      <header className="flex h-14 shrink-0 items-center justify-between border-b bg-card px-4">
+        <div className="flex items-center gap-3">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => router.push(`/student/programs/${programId}`)}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <ArrowLeft className="size-4" />
+          </Button>
+          <span className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground text-xs font-bold">
+            {question.orderNumber}
+          </span>
+          <h1 className="text-base font-semibold truncate max-w-xs text-foreground">{question.title}</h1>
+          {question.difficulty && difficultyConfig[question.difficulty] && (
+            <span
+              className={cn(
+                "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium",
+                difficultyConfig[question.difficulty].bgColor
               )}
-              {!mounted && (
-                <div className="flex h-[500px] items-center justify-center bg-[#1e1e1e]">
-                  <Loader2 className="size-6 animate-spin text-white/50" />
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Stdin Input */}
-          <div>
-            <button
-              type="button"
-              onClick={() => setShowStdin(!showStdin)}
-              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
-              <Keyboard className="size-3.5" />
-              {showStdin ? "Hide" : "Add"} Runtime Input (stdin)
-            </button>
-            {showStdin && (
-              <div className="mt-2">
-                <textarea
-                  value={stdin}
-                  onChange={(e) => setStdin(e.target.value)}
-                  placeholder={`Enter input for your program here...\nExample: if your program uses input() or scanf(),\ntype the values here, one per line.`}
-                  rows={3}
-                  className="h-16 w-full min-w-0 rounded-lg border border-input bg-muted/30 px-2.5 py-1.5 font-mono text-xs transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 placeholder:text-muted-foreground"
-                  spellCheck={false}
-                />
-                <p className="mt-0.5 text-[10px] text-muted-foreground">
-                  This input is passed as stdin when you run the code.
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* Action Buttons */}
-          <div className="flex items-center justify-between gap-4">
-            <Button
-              onClick={handleRun}
-              disabled={running}
-              variant="outline"
-              size="lg"
-              className="gap-2"
-            >
-              {running ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <Play className="size-4" />
-              )}
-              {running ? "Running..." : "Run Code"}
-            </Button>
-            <div className="flex items-center gap-2">
-              <Button
-                onClick={handleSubmit}
-                disabled={submitting}
-                size="lg"
-                className="gap-2"
-              >
-                {submitting ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Send className="size-4" />
-                )}
-                {submitting ? "Submitting..." : "Submit"}
-              </Button>
-            </div>
-          </div>
-
-          {/* Output Panel */}
-          {(runResult || runError || running) && (
-            <Card className="overflow-hidden border-t-2 border-t-cyan-500/30">
-              <CardHeader className="flex flex-row items-center justify-between border-b bg-muted/30 px-4 py-2">
-                <CardTitle className="flex items-center gap-2 text-sm font-medium">
-                  <Terminal className="size-4" />
-                  Output
-                </CardTitle>
-                {runResult && runResult.exitCode === 0 && (
-                  <span className="rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
-                    Exit: {runResult.exitCode}
-                  </span>
-                )}
-                {runResult && runResult.exitCode !== null && runResult.exitCode !== 0 && (
-                  <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-900/30 dark:text-red-400">
-                    Exit: {runResult.exitCode}
-                  </span>
-                )}
-              </CardHeader>
-              <CardContent className="p-0">
-                {running ? (
-                  <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
-                    <Loader2 className="size-4 animate-spin" />
-                    Executing code...
-                  </div>
-                ) : runError ? (
-                  <div className="flex items-start gap-2 p-4 text-sm text-destructive">
-                    <AlertCircle className="mt-0.5 size-4 shrink-0" />
-                    {runError}
-                  </div>
-                ) : runResult ? (
-                  <div className="font-mono text-sm leading-relaxed">
-                    {runResult.compileOutput && (
-                      <>
-                        <div className="bg-amber-50 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
-                          Compile Output
-                        </div>
-                        <pre className="overflow-x-auto px-4 py-2 text-xs text-amber-700 dark:text-amber-400">
-                          {runResult.compileOutput}
-                        </pre>
-                      </>
-                    )}
-                    <pre className="overflow-x-auto px-4 py-3 text-foreground">
-                      {runResult.output || runResult.stdout || "(no output)"}
-                    </pre>
-                    {runResult.stderr && (
-                      <pre className="overflow-x-auto border-t px-4 py-2 text-xs text-red-600">
-                        {runResult.stderr}
-                      </pre>
-                    )}
-                  </div>
-                ) : null}
-              </CardContent>
-            </Card>
-          )}
-
-          {submitError && (
-            <div className="flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              <AlertCircle className="mt-0.5 size-4 shrink-0" />
-              <span>{submitError}</span>
-            </div>
+              {difficultyConfig[question.difficulty].label}
+            </span>
           )}
         </div>
 
-        {/* Right: Description & Status */}
-        <div className="space-y-4">
-          {/* Question description */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm font-medium">Description</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="whitespace-pre-wrap text-sm text-muted-foreground leading-relaxed">
-                {question.description}
-              </p>
-            </CardContent>
-          </Card>
-
-          {/* Starter code info */}
-          {question.starterCode && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm font-medium flex items-center gap-2">
-                  <Info className="size-3.5" />
-                  Starter Code
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <pre className="overflow-x-auto rounded-lg bg-muted p-3 text-xs">
-                  <code className="font-mono">{question.starterCode}</code>
-                </pre>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Submission result */}
+        <div className="flex items-center gap-3">
+          {/* Submission status */}
           {submission && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm font-medium">
-                  Submission Status
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <span
-                    className={cn(
-                      "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase",
-                      statusColors[submission.status]
-                    )}
-                  >
-                    {submission.status === "PENDING" && <Clock className="size-3" />}
-                    {submission.status === "APPROVED" && (
-                      <CheckCircle2 className="size-3" />
-                    )}
-                    {submission.status === "REJECTED" && (
-                      <XCircle className="size-3" />
-                    )}
-                    {submission.status}
-                  </span>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Submitted {formatDate(submission.createdAt)}
-                </p>
+            <span
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold uppercase tracking-wide",
+                statusBgColors[submission.status]
+              )}
+            >
+              {submission.status === "PENDING" && <Clock className="size-3" />}
+              {submission.status === "APPROVED" && (
+                <CheckCircle2 className="size-3" />
+              )}
+              {submission.status === "REJECTED" && (
+                <XCircle className="size-3" />
+              )}
+              {submission.status}
+            </span>
+          )}
+          <span className="text-sm text-muted-foreground truncate max-w-xs">
+            {question.program.title}
+          </span>
+        </div>
+      </header>
 
-                {submission.feedback && (
-                  <div className="rounded-lg border p-3">
-                    <p className="text-xs font-medium text-muted-foreground mb-1">
-                      Feedback
-                    </p>
-                    <p className="text-sm">{submission.feedback}</p>
+      {/* ===== MAIN CONTENT: Split Panels ===== */}
+      <div className="flex flex-1 overflow-hidden min-h-0">
+        <Group orientation="horizontal" id="leetcode-editor" className="w-full h-full min-w-0">
+          {/* ===== LEFT PANEL: Problem Description ===== */}
+          <Panel
+            id="description-panel"
+            defaultSize={300}
+            minSize={400}
+            maxSize={500}
+            collapsible={true}
+            collapsedSize={45}
+            onResize={(size: any) => {
+              const sizeNum = typeof size === "string" ? parseFloat(size) : Number(size)
+              setDescriptionCollapsed(sizeNum === 0)
+            }}
+            panelRef={(ref: any) => {
+              descPanelRef.current = ref
+            }}
+            className="h-full"
+          >
+            <div className="flex h-full flex-col min-w-0 overflow-hidden bg-card">
+              {/* Description Tab Header */}
+              <div className="flex h-10 shrink-0 items-center border-b bg-muted/30 px-4">
+                <div className="flex items-center gap-2 text-xs font-medium text-foreground">
+                  <BookOpen className="size-3.5" />
+                  Description
+                </div>
+                <button
+                  onClick={() => descPanelRef.current?.collapse()}
+                  className="ml-auto flex size-6 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+                  title="Collapse description panel"
+                >
+                  <ChevronLeft className="size-4" />
+                </button>
+              </div>
+
+              {/* Description Content */}
+              <div className="flex-1 overflow-y-auto">
+                <div className="p-5 h-full">
+                  {/* Title */}
+                  <div className="mb-4">
+                    <h2 className="text-lg font-semibold text-foreground">{question.title}</h2>
+                    <div className="mt-1.5 flex items-center gap-3">
+                      {question.difficulty && difficultyConfig[question.difficulty] && (
+                        <span
+                          className={cn(
+                            "text-sm font-medium",
+                            difficultyConfig[question.difficulty].color
+                          )}
+                        >
+                          {difficultyConfig[question.difficulty].label}
+                        </span>
+                      )}
+                      <span className="text-sm text-muted-foreground">
+                        {question.program.title}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Description text */}
+                  <div className="max-w-none">
+                    <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/80">
+                      {question.description}
+                    </div>
+                  </div>
+
+                  {/* Starter Code Section */}
+                  {question.starterCode && (
+                    <div className="mt-6">
+                      <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        <FileCode className="size-3.5" />
+                        Starter Code
+                      </h3>
+                      <div className="overflow-hidden rounded-lg border bg-secondary/40">
+                        <pre className="overflow-x-auto p-4 text-xs leading-relaxed">
+                          <code className="font-mono text-foreground">
+                            {question.starterCode}
+                          </code>
+                        </pre>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Submission info */}
+                  {submission && (
+                    <div className="mt-6">
+                      <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        <Info className="size-3.5" />
+                        Submission
+                      </h3>
+                      <div
+                        className={cn(
+                          "rounded-lg border p-3",
+                          statusBgColors[submission.status]
+                        )}
+                      >
+                        <div className="flex items-center gap-2">
+                          {submission.status === "PENDING" && (
+                            <Clock className={cn("size-4", statusColors[submission.status])} />
+                          )}
+                          {submission.status === "APPROVED" && (
+                            <CheckCircle2 className={cn("size-4", statusColors[submission.status])} />
+                          )}
+                          {submission.status === "REJECTED" && (
+                            <XCircle className={cn("size-4", statusColors[submission.status])} />
+                          )}
+                          <span
+                            className={cn(
+                              "text-sm font-semibold uppercase",
+                              statusColors[submission.status]
+                            )}
+                          >
+                            {submission.status}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Submitted {formatDate(submission.createdAt)}
+                        </p>
+                        {submission.feedback && (
+                          <p className="mt-2 text-sm text-foreground">{submission.feedback}</p>
+                        )}
+                        {submission.status === "PENDING" && (
+                          <p className="mt-2 text-xs text-pending">
+                            Your submission is pending review by the teacher.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </Panel>
+
+          {/* ===== SEPARATOR ===== */}
+          <Separator className="group relative flex w-1.5 shrink-0 items-center justify-center bg-transparent transition-colors hover:bg-info/20 data-[resize-handle-active]:bg-info/30">
+            <div className="flex h-8 w-0.5 rounded-full bg-border group-hover:bg-info group-data-[resize-handle-active]:bg-info transition-colors" />
+          </Separator>
+
+          {/* ===== RIGHT PANEL: Editor + Console ===== */}
+          <Panel id="editor-panel" defaultSize={15} minSize={10} className="h-full">
+            <div className="flex h-full flex-col bg-secondary">
+              {/* ---- Editor Toolbar ---- */}
+              <div className="flex h-12 shrink-0 items-center justify-between border-b bg-secondary/60 px-4">
+                <div className="flex items-center gap-2">
+                  <FileCode className="size-4 text-muted-foreground" />
+                  <span className="text-sm font-medium text-foreground">
+                    code.{SUPPORTED_LANGUAGES.find((l) => l.id === language)?.ext || ".txt"}
+                  </span>
+                  {/* Auto-save indicator */}
+                  {hasDraft && !showDraftBanner && (
+                    <span className="flex items-center gap-1 rounded bg-pending-bg/15 px-1.5 py-0.5 text-xs text-pending">
+                      <Save className="size-3" />
+                      Saved
+                    </span>
+                  )}
+                  {autoSaving && (
+                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Loader2 className="size-3 animate-spin" />
+                      Saving...
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {/* Font size controls */}
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setFontSize((s) => Math.max(10, s - 1))}
+                      className="flex size-6 items-center justify-center rounded text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+                      title="Decrease font size"
+                    >
+                      A-
+                    </button>
+                    <span className="w-6 text-center text-xs text-muted-foreground">{fontSize}</span>
+                    <button
+                      onClick={() => setFontSize((s) => Math.min(24, s + 1))}
+                      className="flex size-6 items-center justify-center rounded text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+                      title="Increase font size"
+                    >
+                      A+
+                    </button>
+                  </div>
+                  <div className="h-4 w-px bg-border" />
+                  {/* Language selector */}
+                  <select
+                    value={language}
+                    onChange={(e) => setLanguage(e.target.value)}
+                    className="h-7 rounded border bg-secondary px-2 text-xs text-foreground outline-none focus:border-info"
+                    title="Select language"
+                  >
+                    {SUPPORTED_LANGUAGES.map((lang) => (
+                      <option key={lang.id} value={lang.id}>
+                        {lang.label}
+                      </option>
+                    ))}
+                  </select>
+
+                  <div className="h-4 w-px bg-border" />
+
+                  {/* Run/Submit buttons */}
+                  <Button
+                    onClick={handleRun}
+                    disabled={running}
+                    size="sm"
+                    variant="default"
+                    className="h-7 gap-1 bg-approved text-xs font-medium text-approved-foreground hover:bg-approved/80"
+                    title="Run code (Ctrl+Enter)"
+                  >
+                    {running ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <Play className="size-3.5" />
+                    )}
+                    {running ? "Run..." : "Run"}
+                  </Button>
+                  <Button
+                    onClick={handleSubmit}
+                    disabled={submitting}
+                    size="sm"
+                    variant="default"
+                    className="h-7 gap-1 bg-info text-xs font-medium text-white hover:bg-info/80"
+                    title="Submit code (Ctrl+Shift+Enter)"
+                  >
+                    {submitting ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <Send className="size-3.5" />
+                    )}
+                    {submitting ? "Sub..." : "Submit"}
+                  </Button>
+                </div>
+              </div>
+
+              {/* ---- Editor Area ---- */}
+              <div className="flex-1 overflow-hidden">
+                {mounted && (
+                  <MonacoEditor
+                    height="100%"
+                    width="100%"
+                    language={language}
+                    value={code}
+                    onChange={handleEditorChange}
+                    theme="vs-dark"
+                    options={{
+                      minimap: { enabled: false },
+                      fontSize: fontSize,
+                      lineNumbers: "on",
+                      scrollBeyondLastLine: false,
+                      automaticLayout: true,
+                      tabSize: 2,
+                      wordWrap: "on",
+                      padding: { top: 12 },
+                      renderLineHighlight: "line",
+                      cursorBlinking: "smooth",
+                      smoothScrolling: true,
+                      folding: true,
+                      bracketPairColorization: { enabled: true },
+                    }}
+                  />
+                )}
+                {!mounted && (
+                  <div className="flex h-full w-full items-center justify-center bg-secondary">
+                    <Loader2 className="size-6 animate-spin text-muted-foreground" />
                   </div>
                 )}
+              </div>
 
-                {submission.status === "PENDING" && (
-                  <p className="text-xs text-amber-600">
-                    Your submission is pending review by the teacher.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          )}
-        </div>
+              {/* ---- Console Toggle ---- */}
+              {!consoleOpen && (
+                <button
+                  onClick={() => setConsoleOpen(true)}
+                  className="flex h-8 shrink-0 items-center gap-2 border-t bg-secondary/60 px-4 text-xs text-muted-foreground hover:text-foreground"
+                  title="Show console"
+                >
+                  <Terminal className="size-3.5" />
+                  Console
+                  <ChevronRight className="size-3.5" />
+                  {runResult && (
+                    <span
+                      className={cn(
+                        "ml-auto rounded px-1.5 py-0.5 text-[10px]",
+                        runResult.exitCode === 0
+                          ? "bg-approved-bg/15 text-approved"
+                          : "bg-rejected-bg/15 text-rejected"
+                      )}
+                    >
+                      Exit: {runResult.exitCode}
+                    </span>
+                  )}
+                </button>
+              )}
+
+              {/* ---- Console Panel ---- */}
+              {consoleOpen && (
+                <div
+                  className={cn(
+                    "flex shrink-0 flex-col border-t bg-secondary",
+                    "h-60"
+                  )}
+                >
+                  {/* Console Tabs */}
+                  <div className="flex h-10 shrink-0 items-center border-b bg-secondary/60">
+                    <button
+                      onClick={() => setConsoleTab("testcase")}
+                      className={cn(
+                        "flex h-full items-center gap-1.5 border-b-2 px-3 text-xs font-medium transition-colors",
+                        consoleTab === "testcase"
+                          ? "border-info text-foreground"
+                          : "border-transparent text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      <Keyboard className="size-3.5" />
+                      Test Case
+                    </button>
+                    <button
+                      onClick={() => setConsoleTab("output")}
+                      className={cn(
+                        "flex h-full items-center gap-1.5 border-b-2 px-3 text-xs font-medium transition-colors",
+                        consoleTab === "output"
+                          ? "border-info text-foreground"
+                          : "border-transparent text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      <Terminal className="size-3.5" />
+                      Run Output
+                      {(runResult || runError) && (
+                        <span
+                          className={cn(
+                            "ml-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-bold",
+                            runResult?.exitCode === 0
+                              ? "bg-approved-bg/15 text-approved"
+                              : "bg-rejected-bg/15 text-rejected"
+                          )}
+                        >
+                          {runResult?.exitCode === 0
+                            ? "✓"
+                            : runResult
+                            ? "✗"
+                            : "!"}
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => setConsoleTab("submission")}
+                      className={cn(
+                        "flex h-full items-center gap-1.5 border-b-2 px-3 text-xs font-medium transition-colors",
+                        consoleTab === "submission"
+                          ? "border-info text-foreground"
+                          : "border-transparent text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      <Send className="size-3.5" />
+                      Submission
+                      {submission && (
+                        <span
+                          className={cn(
+                            "ml-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-bold",
+                            submission.status === "APPROVED"
+                              ? "bg-approved-bg/15 text-approved"
+                              : submission.status === "REJECTED"
+                              ? "bg-rejected-bg/15 text-rejected"
+                              : "bg-pending-bg/15 text-pending"
+                          )}
+                        >
+                          {submission.status === "APPROVED"
+                            ? "✓"
+                            : submission.status === "REJECTED"
+                            ? "✗"
+                            : "~"}
+                        </span>
+                      )}
+                    </button>
+
+                    {/* Console close button */}
+                    <button
+                      onClick={() => setConsoleOpen(false)}
+                      className="ml-auto mr-2 flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                      title="Hide console"
+                    >
+                      <ChevronDown className="size-3.5" />
+                    </button>
+                  </div>
+
+                  {/* Console Content */}
+                  <div className="flex-1 overflow-y-auto p-0">
+                    {/* Test Case Tab */}
+                    {consoleTab === "testcase" && (
+                      <div className="p-3 h-full">
+                        <label className="mb-1.5 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                          <Keyboard className="size-3.5" />
+                          Runtime Input (stdin)
+                        </label>
+                        <textarea
+                          value={stdin}
+                          onChange={(e) => setStdin(e.target.value)}
+                          placeholder={`Enter input for your program here...\nExample: if your program uses input() or scanf(),\ntype the values here, one per line.`}
+                          rows={5}
+                          className="w-full h-32 rounded border bg-muted/40 px-3 py-2 font-mono text-sm text-foreground outline-none transition-colors focus:border-info placeholder:text-muted-foreground"
+                          spellCheck={false}
+                        />
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          This input is passed as stdin when you run the code.
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Output Tab */}
+                    {consoleTab === "output" && (
+                      <div className="h-full">
+                        {/* Exit code badge */}
+                        <div className="flex items-center justify-between border-b px-3 py-1.5">
+                          <span className="text-xs text-muted-foreground">Output</span>
+                          <div className="flex items-center gap-2">
+                            {(runResult || runError) && (
+                              <>
+                                {runResult && (
+                                  <span
+                                    className={cn(
+                                      "rounded px-1.5 py-0.5 text-xs font-medium",
+                                      runResult.exitCode === 0
+                                        ? "bg-approved-bg/15 text-approved"
+                                        : "bg-rejected-bg/15 text-rejected"
+                                    )}
+                                  >
+                                    Exit: {runResult.exitCode}
+                                  </span>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Output content */}
+                        <div className="p-0 h-full overflow-auto">
+                          {running ? (
+                            <div className="flex items-center gap-2 px-3 py-4 text-sm text-muted-foreground">
+                              <Loader2 className="size-3.5 animate-spin" />
+                              Executing code...
+                            </div>
+                          ) : runError ? (
+                            <div className="flex items-start gap-2 px-3 py-3 text-sm text-rejected">
+                              <AlertCircle className="mt-0.5 size-4 shrink-0" />
+                              <span>{runError}</span>
+                            </div>
+                          ) : runResult ? (
+                            <div className="font-mono text-sm leading-relaxed h-full">
+                              {runResult.compileOutput && (
+                                <>
+                                  <div className="bg-pending-bg/15 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-pending">
+                                    Compile Output
+                                  </div>
+                                  <pre className="overflow-x-auto px-3 py-2 text-xs text-pending">
+                                    {runResult.compileOutput}
+                                  </pre>
+                                </>
+                              )}
+                              <pre className="overflow-x-auto px-3 py-3 text-sm text-foreground">
+                                {runResult.output || runResult.stdout || (
+                                  <span className="text-muted-foreground">(no output)</span>
+                                )}
+                              </pre>
+                              {runResult.stderr && (
+                                <pre className="overflow-x-auto border-t px-3 py-2 text-xs text-rejected">
+                                  {runResult.stderr}
+                                </pre>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="flex flex-col items-center justify-center h-full py-8 text-center">
+                              <Play className="size-8 text-muted-foreground" />
+                              <p className="mt-2 text-sm text-muted-foreground">
+                                Run your code to see the output here
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                Use the Run button above or press a keyboard shortcut
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Submission Tab */}
+                    {consoleTab === "submission" && (
+                      <div className="p-3 h-full overflow-auto">
+                        {submitError && (
+                          <div className="mb-3 flex items-start gap-2 rounded-md border border-rejected/20 bg-rejected-bg/15 px-3 py-2 text-sm text-rejected">
+                            <AlertCircle className="mt-0.5 size-4 shrink-0" />
+                            <span>{submitError}</span>
+                          </div>
+                        )}
+                        {submission ? (
+                          <div className="space-y-3">
+                            <div
+                              className={cn(
+                                "flex items-center gap-2 rounded-md border px-3 py-2.5",
+                                statusBgColors[submission.status]
+                              )}
+                            >
+                              {submission.status === "PENDING" && (
+                                <Clock className={cn("size-5", statusColors[submission.status])} />
+                              )}
+                              {submission.status === "APPROVED" && (
+                                <CheckCircle2 className={cn("size-5", statusColors[submission.status])} />
+                              )}
+                              {submission.status === "REJECTED" && (
+                                <XCircle className={cn("size-5", statusColors[submission.status])} />
+                              )}
+                              <div>
+                                <p
+                                  className={cn(
+                                    "text-sm font-semibold uppercase",
+                                    statusColors[submission.status]
+                                  )}
+                                >
+                                  {submission.status}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  Submitted {formatDate(submission.createdAt)}
+                                </p>
+                              </div>
+                            </div>
+
+                            {submission.feedback && (
+                              <div className="rounded-md border bg-muted/40 p-3">
+                                <p className="mb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                                  Feedback
+                                </p>
+                                <p className="text-sm text-foreground">{submission.feedback}</p>
+                              </div>
+                            )}
+
+                            {submission.status === "PENDING" && (
+                              <p className="text-xs text-pending">
+                                Your submission is pending review by the teacher.
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-center justify-center h-full py-8 text-center">
+                            <Send className="size-8 text-muted-foreground" />
+                            <p className="mt-2 text-sm text-muted-foreground">
+                              No submission yet
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Write your solution and click Submit
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </Panel>
+        </Group>
       </div>
     </div>
   )

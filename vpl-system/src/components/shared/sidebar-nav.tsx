@@ -20,7 +20,6 @@ import {
   History,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
 
 interface NavUser {
   id: string
@@ -123,9 +122,9 @@ const navItems: NavItem[] = [
 ]
 
 const roleBadgeColors: Record<string, string> = {
-  ADMIN: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
-  TEACHER: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-  STUDENT: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+  ADMIN: "bg-rejected-bg/10 text-rejected",
+  TEACHER: "bg-info-bg/10 text-info",
+  STUDENT: "bg-approved-bg/10 text-approved",
 }
 
 export function SidebarNav({ user }: SidebarNavProps) {

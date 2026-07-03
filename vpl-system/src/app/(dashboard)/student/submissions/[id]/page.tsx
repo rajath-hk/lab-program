@@ -34,12 +34,12 @@ interface SubmissionDetail {
 }
 
 const statusColors: Record<string, string> = {
-  PENDING: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
-  APPROVED: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-  REJECTED: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
-  PENDING_BG: "border-l-amber-500",
-  APPROVED_BG: "border-l-green-500",
-  REJECTED_BG: "border-l-red-500",
+  PENDING: "bg-pending-bg/15 text-pending border border-pending/20",
+  APPROVED: "bg-approved-bg/15 text-approved border border-approved/20",
+  REJECTED: "bg-rejected-bg/15 text-rejected border border-rejected/20",
+  PENDING_BG: "border-l-pending",
+  APPROVED_BG: "border-l-approved",
+  REJECTED_BG: "border-l-rejected",
 }
 
 export default function StudentSubmissionDetailPage() {
@@ -246,7 +246,7 @@ export default function StudentSubmissionDetailPage() {
           )}
 
           {submission.status === "PENDING" && (
-            <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-700 dark:border-amber-900/30 dark:bg-amber-900/10 dark:text-amber-400">
+            <div className="flex items-start gap-2 rounded-lg border border-pending/20 bg-pending-bg/10 px-3 py-2.5 text-sm text-pending">
               <Clock className="mt-0.5 size-4 shrink-0" />
               <span>
                 Your submission is pending review. You'll be able to see

@@ -15,17 +15,16 @@ import {
   Calendar,
   AlertCircle,
   Code,
-  Signal,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 
-const difficultyConfig: Record<string, { label: string; color: string }> = {
-  EASY: { label: "Easy", color: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" },
-  MEDIUM: { label: "Medium", color: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" },
-  HARD: { label: "Hard", color: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400" },
-  EXTREME: { label: "Extreme", color: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" },
+const difficultyConfig: Record<string, string> = {
+  EASY: "bg-approved-bg/10 text-approved border border-approved/10",
+  MEDIUM: "bg-pending-bg/10 text-pending border border-pending/10",
+  HARD: "bg-rejected-bg/10 text-rejected border border-rejected/10",
+  EXTREME: "bg-info-bg/10 text-info border border-info/10",
 }
 
 interface QuestionWithSubmission {
@@ -54,9 +53,9 @@ interface ProgramDetail {
 }
 
 const statusColors: Record<string, string> = {
-  PENDING: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
-  APPROVED: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-  REJECTED: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+  PENDING: "bg-pending-bg/10 text-pending border border-pending/10",
+  APPROVED: "bg-approved-bg/10 text-approved border border-approved/10",
+  REJECTED: "bg-rejected-bg/10 text-rejected border border-rejected/10",
 }
 
 const statusIcons: Record<string, React.ElementType> = {
@@ -109,17 +108,17 @@ export default function StudentProgramDetailPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="size-8 animate-spin text-muted-foreground" />
+      <div className="flex items-center justify-center min-h-[50vh]">
+        <Loader2 className="size-6 animate-spin text-muted-foreground" />
       </div>
     )
   }
 
   if (error) {
     return (
-      <div className="py-20 text-center">
-        <AlertCircle className="mx-auto size-10 text-muted-foreground/40" />
-        <p className="mt-3 text-muted-foreground">{error}</p>
+      <div className="flex flex-col items-center justify-center min-h-[50vh]">
+        <AlertCircle className="size-8 text-muted-foreground/30" />
+        <p className="mt-3 text-sm text-muted-foreground">{error}</p>
         <Button
           variant="outline"
           className="mt-4"
@@ -133,8 +132,8 @@ export default function StudentProgramDetailPage() {
 
   if (!program) {
     return (
-      <div className="py-20 text-center">
-        <p className="text-muted-foreground">Program not found</p>
+      <div className="flex flex-col items-center justify-center min-h-[50vh]">
+        <p className="text-sm text-muted-foreground">Program not found</p>
         <Button
           variant="outline"
           className="mt-4"
@@ -158,20 +157,20 @@ export default function StudentProgramDetailPage() {
           <ArrowLeft className="size-4" />
         </Button>
         <div className="min-w-0 flex-1">
-          <h1 className="text-2xl font-bold tracking-tight">{program.title}</h1>
-          <p className="mt-1 text-muted-foreground">{program.description}</p>
-          <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-            <span className="flex items-center gap-1">
-              <User className="size-3.5" />
+          <h1 className="text-xl font-semibold tracking-tight">{program.title}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{program.description}</p>
+          <div className="mt-3 flex flex-wrap items-center gap-4 text-[11px] text-muted-foreground">
+            <span className="flex items-center gap-1.5">
+              <User className="size-3" />
               {program.teacherName}
             </span>
-            <span className="flex items-center gap-1">
-              <Calendar className="size-3.5" />
+            <span className="flex items-center gap-1.5">
+              <Calendar className="size-3" />
               Unlocked {formatDate(program.unlockDate)}
             </span>
             {program.deadline && (
-              <span className="flex items-center gap-1">
-                <Clock className="size-3.5" />
+              <span className="flex items-center gap-1.5">
+                <Clock className="size-3" />
                 Deadline {formatDate(program.deadline)}
               </span>
             )}
@@ -182,9 +181,9 @@ export default function StudentProgramDetailPage() {
       {/* Progress */}
       <div className="flex items-center gap-4 text-sm">
         <span className="text-muted-foreground">Progress:</span>
-        <div className="flex h-2 flex-1 overflow-hidden rounded-full bg-muted">
+        <div className="flex h-2 flex-1 overflow-hidden rounded-full bg-muted max-w-md">
           <div
-            className="bg-green-500 transition-all"
+            className="bg-approved transition-all duration-300"
             style={{
               width: `${
                 program.questions.length > 0
@@ -194,70 +193,69 @@ export default function StudentProgramDetailPage() {
             }}
           />
         </div>
-        <span className="text-muted-foreground tabular-nums">
+        <span className="tabular-nums font-medium text-sm tabular-nums">
           {completedCount}/{program.questions.length}
         </span>
       </div>
 
       {/* Questions */}
-      <div className="space-y-3">
+      <div className="space-y-1">
         {program.questions.length === 0 ? (
-          <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-12 text-center">
-            <BookOpen className="size-10 text-muted-foreground/40" />
-            <h3 className="mt-3 text-sm font-medium">No questions yet</h3>
-            <p className="mt-1 text-sm text-muted-foreground">
-              The teacher hasn't added any questions to this program yet.
+          <div className="flex flex-col items-center justify-center rounded-lg border border-dashed px-4 py-16 text-center">
+            <BookOpen className="size-8 text-muted-foreground/30" />
+            <h3 className="mt-3 text-[13px] font-medium">No questions yet</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              The teacher hasn&apos;t added any questions to this program yet.
             </p>
           </div>
         ) : (
-          program.questions.map((question) => {
-            const StatusIcon = question.submission
-              ? statusIcons[question.submission.status] || Clock
-              : null
+          <div className="rounded-lg border overflow-hidden">
+            <div className="grid divide-y">
+              {program.questions.map((question) => {
+                const StatusIcon = question.submission
+                  ? statusIcons[question.submission.status] || Clock
+                  : null
 
-            return (
-              <Link
-                key={question.id}
-                href={`/student/programs/${program.id}/questions/${question.id}`}
-              >
-                <Card className="group cursor-pointer transition-all hover:shadow-md">
-                  <CardContent className="p-4">
-                    <div className="flex items-start gap-4">
-                      {/* Question number */}
-                      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-sm font-medium text-primary">
+                return (
+                  <Link
+                    key={question.id}
+                    href={`/student/programs/${program.id}/questions/${question.id}`}
+                    className="block hover:bg-muted/40 transition-colors"
+                  >
+                    <div className="p-4 flex items-start gap-4">
+                      <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground text-xs font-bold">
                         {question.orderNumber}
                       </div>
 
-                      {/* Content */}
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <h3 className="font-medium group-hover:text-primary">
+                        <div className="flex items-center gap-3">
+                          <h3 className="font-medium text-sm">
                             {question.title}
                           </h3>
                           {question.difficulty && difficultyConfig[question.difficulty] && (
                             <span
                               className={cn(
-                                "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold",
-                                difficultyConfig[question.difficulty].color
+                                "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium",
+                                difficultyConfig[question.difficulty]
                               )}
                             >
-                              {difficultyConfig[question.difficulty].label}
+                              {question.difficulty.charAt(0) + question.difficulty.slice(1).toLowerCase()}
                             </span>
                           )}
                         </div>
-                        <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground">
+                        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
                           {question.description}
                         </p>
 
-                        <div className="mt-2 flex items-center gap-3">
+                        <div className="mt-2 flex flex-wrap items-center gap-3">
                           {question.starterCode && (
-                            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
                               <Code className="size-3" />
                               Has starter code
                             </span>
                           )}
                           {question.submission && (
-                            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
                               <FileCode className="size-3" />
                               Last submission:{" "}
                               {new Date(
@@ -268,12 +266,11 @@ export default function StudentProgramDetailPage() {
                         </div>
                       </div>
 
-                      {/* Status */}
                       <div className="shrink-0">
                         {question.submission ? (
                           <span
                             className={cn(
-                              "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase",
+                              "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase",
                               statusColors[question.submission.status]
                             )}
                           >
@@ -287,11 +284,11 @@ export default function StudentProgramDetailPage() {
                         )}
                       </div>
                     </div>
-                  </CardContent>
-                </Card>
-              </Link>
-            )
-          })
+                  </Link>
+                )
+              })}
+            </div>
+          </div>
         )}
       </div>
     </div>

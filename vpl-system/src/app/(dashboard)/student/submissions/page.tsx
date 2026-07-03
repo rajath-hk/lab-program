@@ -28,9 +28,9 @@ interface Submission {
 }
 
 const statusColors: Record<string, string> = {
-  PENDING: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
-  APPROVED: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-  REJECTED: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+  PENDING: "bg-pending-bg/15 text-pending border border-pending/20",
+  APPROVED: "bg-approved-bg/15 text-approved border border-approved/20",
+  REJECTED: "bg-rejected-bg/15 text-rejected border border-rejected/20",
 }
 
 const statusIcons: Record<string, React.ElementType> = {
@@ -88,79 +88,80 @@ export default function StudentSubmissionsPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="size-8 animate-spin text-muted-foreground" />
+      <div className="flex items-center justify-center min-h-[50vh]">
+        <Loader2 className="size-6 animate-spin text-muted-foreground" />
       </div>
     )
   }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">My Submissions</h1>
-        <p className="mt-1 text-muted-foreground">
+        <h1 className="text-xl font-semibold tracking-tight">
+          My Submissions
+        </h1>
+        <p className="mt-0.5 text-sm text-muted-foreground">
           Track your submitted code and feedback
         </p>
       </div>
 
-      {/* Search */}
-      <div className="relative max-w-sm">
-        <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+      <div className="relative max-w-xs">
+        <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
         <Input
           placeholder="Search by question or program..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="pl-9"
+          className="h-8 pl-8 text-xs"
         />
       </div>
 
-      {/* Submissions List */}
       {filteredSubmissions.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-16 text-center">
-          <FileCode className="size-12 text-muted-foreground/40" />
-          <h3 className="mt-4 text-sm font-medium">No submissions yet</h3>
-          <p className="mt-1 text-sm text-muted-foreground">
+        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed px-4 py-16 text-center">
+          <FileCode className="size-8 text-muted-foreground/30" />
+          <h3 className="mt-3 text-[13px] font-medium">
+            No submissions yet
+          </h3>
+          <p className="mt-1 text-xs text-muted-foreground">
             {search
               ? "No submissions matching your search"
               : "Start coding by browsing available programs!"}
           </p>
           {!search && (
             <Link href="/student/programs">
-              <Button className="mt-4">
-                <BookOpen className="size-4" />
+              <Button className="mt-3" size="sm">
+                <BookOpen className="size-3.5" />
                 Browse Programs
               </Button>
             </Link>
           )}
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           {filteredSubmissions.map((sub) => {
             const StatusIcon = statusIcons[sub.status] || Clock
             return (
               <Link
                 key={sub.id}
                 href={`/student/submissions/${sub.id}`}
-                className="block rounded-lg border p-4 transition-colors hover:bg-muted/30"
+                className="block rounded-md ring-1 ring-border px-4 py-3 transition-colors hover:bg-muted/40"
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">
+                    <p className="truncate text-[13px] font-medium">
                       {sub.question.title}
                     </p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {sub.question.program.title} · {sub.language}
+                    <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                      {sub.question.program.title} &middot; {sub.language}
                     </p>
                   </div>
 
                   <div className="flex shrink-0 items-center gap-3">
-                    <span className="hidden text-xs text-muted-foreground sm:inline">
+                    <span className="hidden text-[11px] text-muted-foreground sm:inline">
                       {formatDate(sub.createdAt)}
                     </span>
                     <span
                       className={cn(
-                        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase",
+                        "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-medium capitalize",
                         statusColors[sub.status]
                       )}
                     >
