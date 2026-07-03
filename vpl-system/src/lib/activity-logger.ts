@@ -19,6 +19,7 @@ type ActionType =
   | "SUBMIT_CODE"
   | "REVIEW_SUBMISSION"
   | "CREATE_BULK_UPLOAD"
+  | "TAB_SWITCH"
 
 export async function logActivity(
   userId: string,

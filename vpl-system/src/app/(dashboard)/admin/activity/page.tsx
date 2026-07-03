@@ -65,6 +65,7 @@ const actionColors: Record<string, string> = {
   SUBMIT_CODE: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400",
   REVIEW_SUBMISSION: "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400",
   CREATE_BULK_UPLOAD: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400",
+  TAB_SWITCH: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
 }
 
 function formatAction(action: string) {

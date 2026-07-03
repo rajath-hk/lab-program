@@ -187,6 +187,7 @@ export default function CodeEditorPage() {
   const [hasDraft, setHasDraft] = useState(false)
   const [draftInfo, setDraftInfo] = useState<DraftData | null>(null)
   const [showDraftBanner, setShowDraftBanner] = useState(false)
+  const [showTabSwitchWarning, setShowTabSwitchWarning] = useState(false)
   const [autoSaving, setAutoSaving] = useState(false)
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const initialLoadDoneRef = useRef(false)
@@ -424,6 +425,23 @@ export default function CodeEditorPage() {
       }
     }
   }, [question, mounted, submission, questionId])
+
+  // Log tab switches and display warning
+  const tabSwitchFirst = useRef(true);
+  useEffect(() => {
+    if (tabSwitchFirst.current) {
+      tabSwitchFirst.current = false;
+      return;
+    }
+    // Show warning to student
+    setShowTabSwitchWarning(true);
+    // Log activity to server (ignore errors)
+    fetch("/api/student/tab-switch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tab: consoleTab, programId, questionId }),
+    }).catch(() => {});
+  }, [consoleTab, programId, questionId]);
 
   function handleRestoreDraft() {
     if (!draftInfo) return
