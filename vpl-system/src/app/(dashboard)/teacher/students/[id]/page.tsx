@@ -67,6 +67,7 @@ const statusIcons: Record<string, React.ElementType> = {
 }
 
 export default function StudentDetailPage() {
+  const [tabSwitchWarning, setTabSwitchWarning] = useState<string | null>(null);
   const params = useParams()
   const router = useRouter()
   const studentId = params.id as string
@@ -89,6 +90,24 @@ export default function StudentDetailPage() {
   useEffect(() => {
     fetchStudent()
   }, [fetchStudent])
+
+  // Fetch latest TAB_SWITCH activity for this student
+  useEffect(() => {
+    async function fetchTabSwitch() {
+      try {
+        const res = await fetch(`/api/admin/activity?userId=${studentId}&action=TAB_SWITCH&limit=1&page=1`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.logs && data.logs.length > 0) {
+          const log = data.logs[0];
+          setTabSwitchWarning(log.details || "Student switched tabs");
+        }
+      } catch (e) {
+        // ignore errors
+      }
+    }
+    fetchTabSwitch();
+  }, [studentId]);
 
   function formatDate(dateStr: string) {
     return new Date(dateStr).toLocaleDateString("en-US", {
@@ -135,6 +154,14 @@ export default function StudentDetailPage() {
         <ArrowLeft className="mr-1 size-4" />
         Back to Students
       </Button>
+
+      {/* Tab Switch Warning Banner */}
+      {tabSwitchWarning && (
+        <div className="flex shrink-0 items-center gap-3 border-b border-yellow-300 bg-yellow-100/10 px-4 py-2 text-sm">
+          <AlertCircle className="size-4 text-yellow-600" />
+          <span className="text-foreground">{tabSwitchWarning}</span>
+        </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Main content */}

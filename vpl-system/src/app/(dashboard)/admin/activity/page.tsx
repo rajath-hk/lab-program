@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useMemo } from "react"
 import {
   Search,
   Filter,
@@ -106,6 +106,8 @@ export default function AdminActivityPage() {
   const [fromDate, setFromDate] = useState("")
   const [toDate, setToDate] = useState("")
   const [page, setPage] = useState(1)
+  const [sortKey, setSortKey] = useState<keyof ActivityLog>("createdAt")
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc")
   const [showFilters, setShowFilters] = useState(false)
 
   const fetchLogs = useCallback(async () => {
@@ -359,18 +361,24 @@ export default function AdminActivityPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-muted/50">
-                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-                      <div className="flex items-center gap-1.5">
-                        <CalendarDays className="size-3.5" />
-                        Date & Time
-                      </div>
-                    </th>
-                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-                      <div className="flex items-center gap-1.5">
-                        <UserIcon className="size-3.5" />
-                        User
-                      </div>
-                    </th>
+<th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                    <button type="button" className="flex items-center gap-1.5" onClick={() => {
+                      setSortKey('createdAt');
+                      setSortDir(prev => (sortKey === 'createdAt' && prev === 'asc') ? 'desc' : 'asc');
+                    }}>
+                      <CalendarDays className="size-3.5" />
+                      Date & Time
+                    </button>
+                  </th>
+<th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                    <button type="button" className="flex items-center gap-1.5" onClick={() => {
+                      setSortKey('user');
+                      setSortDir(prev => (sortKey === 'user' && prev === 'asc') ? 'desc' : 'asc');
+                    }}>
+                      <UserIcon className="size-3.5" />
+                      User
+                    </button>
+                  </th>
                     <th className="px-4 py-3 text-left font-medium text-muted-foreground">
                       Role
                     </th>

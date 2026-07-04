@@ -1,4 +1,4 @@
-# VPL System — Virtual Programming Lab
+# AMC Engineering College — Virtual Programming Lab
 
 A full-stack web application for managing programming labs in educational institutions. Built with **Next.js 16**, **PostgreSQL**, **Prisma ORM**, and **NextAuth.js**.
 
@@ -128,8 +128,8 @@ This creates the following default accounts:
 
 | Role    | Credentials                       |
 |---------|-----------------------------------|
-| Admin   | `admin@vpl.com` / `password123`  |
-| Teacher | `teacher@vpl.com` / `password123` |
+| Admin   | `admin@amc.edu` / `password123`  |
+| Teacher | `teacher@amc.edu` / `password123` |
 | Student | Roll number: `1AM25MC001` / `password123` |
 
 > Students log in using their **roll number** (not email). Admins and teachers log in with their **email address**.
@@ -146,8 +146,8 @@ Open [http://localhost:3000](http://localhost:3000) in your browser. You will be
 
 ### Logging In
 
-- **Admin** → Email: `admin@vpl.com`, Password: `password123`
-- **Teacher** → Email: `teacher@vpl.com`, Password: `password123`
+- **Admin** → Email: `admin@amc.edu`, Password: `password123`
+- **Teacher** → Email: `teacher@amc.edu`, Password: `password123`
 - **Student** → Roll Number: `1AM25MC001`, Password: `password123`
 
 ### Admin Dashboard

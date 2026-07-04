@@ -12,11 +12,11 @@ async function main() {
 
   // Create Admin
   const admin = await prisma.user.upsert({
-    where: { email: "admin@vpl.com" },
+    where: { email: "admin@amc.edu" },
     update: {},
     create: {
       name: "Admin User",
-      email: "admin@vpl.com",
+      email: "admin@amc.edu",
       password: hashedPassword,
       role: "ADMIN",
     },
@@ -25,11 +25,11 @@ async function main() {
 
   // Create Teacher
   const teacherUser = await prisma.user.upsert({
-    where: { email: "teacher@vpl.com" },
+    where: { email: "teacher@amc.edu" },
     update: {},
     create: {
       name: "Prof. Sharma",
-      email: "teacher@vpl.com",
+      email: "teacher@amc.edu",
       password: hashedPassword,
       role: "TEACHER",
     },
@@ -58,11 +58,11 @@ async function main() {
 
   // Create Student
   const studentUser = await prisma.user.upsert({
-    where: { email: "student@vpl.com" },
+    where: { email: "student@amc.edu" },
     update: {},
     create: {
       name: "Ramu Kumar",
-      email: "student@vpl.com",
+      email: "student@amc.edu",
       password: hashedPassword,
       role: "STUDENT",
     },
@@ -81,8 +81,8 @@ async function main() {
   console.log(`Created student: ${studentUser.name} (roll: 1AM25MC001)`)
 
   console.log("\n✅ Seed complete")
-  console.log("Admin   → email: admin@vpl.com      | password: password123")
-  console.log("Teacher → email: teacher@vpl.com    | password: password123")
+  console.log("Admin   → email: admin@amc.edu      | password: password123")
+  console.log("Teacher → email: teacher@amc.edu    | password: password123")
   console.log("Student → roll:  1AM25MC001          | password: password123")
 }
 

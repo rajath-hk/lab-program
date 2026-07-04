@@ -105,7 +105,7 @@ const SUPPORTED_LANGUAGES = [
 type ConsoleTab = "testcase" | "output" | "submission"
 
 // --- localStorage draft helpers ---
-const DRAFT_PREFIX = "vpl-draft-"
+const DRAFT_PREFIX = "amc-draft-"
 
 interface DraftData {
   code: string
@@ -527,6 +527,17 @@ export default function CodeEditorPage() {
           >
             <X className="size-3" />
             Discard
+          </Button>
+        </div>
+      )}
+
+      {/* Tab Switch Warning Banner */}
+      {showTabSwitchWarning && (
+        <div className="flex shrink-0 items-center gap-3 border-b border-yellow-300 bg-yellow-100/10 px-4 py-2 text-sm">
+          <AlertCircle className="size-4 text-yellow-600" />
+          <span className="text-foreground">You switched tabs while working on this question. This activity is logged.</span>
+          <Button size="xs" variant="ghost" onClick={() => setShowTabSwitchWarning(false)} className="ml-auto h-7 gap-1 text-yellow-600 hover:bg-yellow-100/20">
+            <X className="size-3" />
           </Button>
         </div>
       )}

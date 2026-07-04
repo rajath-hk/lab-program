@@ -122,7 +122,7 @@ export async function POST(request: Request) {
     }
 
     // Create a temp directory for this execution
-    tmpDir = mkdtempSync(join(tmpdir(), "vpl-"))
+    tmpDir = mkdtempSync(join(tmpdir(), "amc-"))
     const filePath = join(tmpDir, langConfig.fileExtension)
 
     // Write the code to a temp file

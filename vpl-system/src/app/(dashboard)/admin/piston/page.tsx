@@ -16,6 +16,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
+import { BRAND } from "@/lib/branding"
 
 interface Runtime {
   language: string
@@ -179,7 +180,7 @@ export default function AdminPistonPage() {
             <CardHeader>
               <CardTitle className="text-base">Supported Runtimes</CardTitle>
               <CardDescription>
-                Languages configured for use in the VPL code editor
+                Languages configured for use in the {BRAND.name} code editor
               </CardDescription>
             </CardHeader>
             <CardContent>

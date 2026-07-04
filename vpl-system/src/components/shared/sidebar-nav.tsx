@@ -18,8 +18,10 @@ import {
   UserIcon,
   Cpu,
   History,
+  BarChart,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { BRAND } from "@/lib/branding"
 
 interface NavUser {
   id: string
@@ -113,12 +115,18 @@ const navItems: NavItem[] = [
     icon: BookOpen,
     roles: ["STUDENT"],
   },
-  {
-    label: "My Submissions",
-    href: "/student/submissions",
-    icon: FileCode,
-    roles: ["STUDENT"],
-  },
+{
+  label: "My Submissions",
+  href: "/student/submissions",
+  icon: FileCode,
+  roles: ["STUDENT"],
+},
+{
+  label: "Realtime Analytics",
+  href: "/admin/analytics",
+  icon: BarChart,
+  roles: ["ADMIN"],
+},
 ]
 
 const roleBadgeColors: Record<string, string> = {
@@ -173,17 +181,17 @@ export function SidebarNav({ user }: SidebarNavProps) {
         >
           {!collapsed && (
             <Link href="/" className="flex items-center gap-2 font-semibold text-sidebar-foreground">
-              <div className="flex size-7 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground text-xs font-bold">
-                V
-              </div>
-              <span className="truncate">VPL System</span>
+<div className="flex size-7 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground text-xs font-bold">
+                  {BRAND.logo}
+                </div>
+               <span className="truncate">{BRAND.name}</span>
             </Link>
           )}
           {collapsed && (
             <Link href="/" className="flex items-center justify-center">
-              <div className="flex size-7 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground text-xs font-bold">
-                V
-              </div>
+<div className="flex size-7 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground text-xs font-bold">
+                  {BRAND.logo}
+                </div>
             </Link>
           )}
         </div>
