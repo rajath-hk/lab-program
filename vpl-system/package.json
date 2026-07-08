@@ -3,9 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -H 127.0.0.1",
+    "dev:network": "next dev",
     "build": "next build",
     "start": "next start",
+    "lab": "npm run build && npm start",
+    "lab:dev": "next dev -H 0.0.0.0",
     "lint": "eslint"
   },
   "dependencies": {
@@ -16,6 +19,7 @@
     "@prisma/adapter-better-sqlite3": "^7.8.0",
     "@prisma/client": "^7.8.0",
     "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^12.11.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "jspdf": "^4.2.1",
@@ -37,6 +41,7 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/bcryptjs": "^2.4.6",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
@@ -46,5 +51,14 @@
     "ts-node": "^10.9.2",
     "tsx": "^4.22.4",
     "typescript": "^5"
+  },
+  "allowScripts": {
+    "@prisma/engines@7.8.0": true,
+    "prisma@7.8.0": true,
+    "esbuild@0.28.1": true,
+    "sharp@0.34.5": true,
+    "core-js@3.49.0": true,
+    "unrs-resolver@1.12.2": true,
+    "better-sqlite3@12.11.1": true
   }
 }

@@ -3,6 +3,7 @@ import CredentialsProvider from "next-auth/providers/credentials"
 import { prisma } from "@/lib/prisma"
 import bcrypt from "bcryptjs"
 import { logActivity } from "@/lib/activity-logger"
+import { INACTIVITY_TIMEOUT, SESSION_MAX_AGE } from "@/lib/session-config"
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -49,6 +50,7 @@ export const authOptions: NextAuthOptions = {
           name: user.name,
           email: user.email,
           role: user.role,
+          isOnboarded: user.isOnboarded,
         }
       },
     }),
@@ -68,17 +70,33 @@ export const authOptions: NextAuthOptions = {
   },
 
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger }) {
       if (user) {
+        // Sign in — set initial lastActivity timestamp
         token.id = user.id
         token.role = user.role
+        token.isOnboarded = user.isOnboarded
+        token.lastActivity = Date.now()
+        return token
       }
+
+      // Migrate existing sessions without lastActivity — treat as active
+      if (!token.lastActivity) {
+        token.lastActivity = Date.now()
+      }
+
+      // Only extend the session on explicit update trigger (user activity)
+      if (trigger === "update") {
+        token.lastActivity = Date.now()
+      }
+
       return token
     },
     async session({ session, token }) {
-      if (token) {
+      if (token?.id) {
         session.user.id = token.id as string
         session.user.role = token.role as string
+        session.user.isOnboarded = token.isOnboarded as boolean | undefined
       }
       return session
     },
@@ -91,6 +109,7 @@ export const authOptions: NextAuthOptions = {
 
   session: {
     strategy: "jwt",
+    maxAge: SESSION_MAX_AGE,
   },
 
   secret: process.env.NEXTAUTH_SECRET,

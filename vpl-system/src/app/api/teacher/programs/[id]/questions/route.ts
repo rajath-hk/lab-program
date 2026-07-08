@@ -71,7 +71,7 @@ export async function POST(
     }
 
     const body = await request.json()
-    const { title, description, difficulty, starterCode } = body
+    const { title, description, difficulty, starterCode, testCases } = body
 
     if (!title || !description) {
       return NextResponse.json({ error: "Title and description are required" }, { status: 400 })
@@ -92,6 +92,7 @@ export async function POST(
         description,
         difficulty: difficulty || "EASY",
         starterCode: starterCode || null,
+        testCases: testCases ? JSON.stringify(testCases) : null,
         orderNumber: nextOrderNumber,
         programId: id,
       },

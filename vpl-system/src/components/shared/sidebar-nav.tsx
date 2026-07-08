@@ -11,6 +11,7 @@ import {
   GraduationCap,
   BookOpen,
   FileCode,
+  Clock,
   Settings,
   LogOut,
   ChevronLeft,
@@ -20,6 +21,7 @@ import {
   History,
   BarChart,
 } from "lucide-react"
+import Image from "next/image"
 import { cn } from "@/lib/utils"
 import { BRAND } from "@/lib/branding"
 
@@ -95,6 +97,12 @@ const navItems: NavItem[] = [
     label: "Students",
     href: "/teacher/students",
     icon: GraduationCap,
+    roles: ["TEACHER"],
+  },
+  {
+    label: "Attendance",
+    href: "/teacher/attendance",
+    icon: Clock,
     roles: ["TEACHER"],
   },
   {
@@ -181,17 +189,29 @@ export function SidebarNav({ user }: SidebarNavProps) {
         >
           {!collapsed && (
             <Link href="/" className="flex items-center gap-2 font-semibold text-sidebar-foreground">
-<div className="flex size-7 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground text-xs font-bold">
-                  {BRAND.logo}
-                </div>
-               <span className="truncate">{BRAND.name}</span>
+              <div className="relative flex size-8 shrink-0 items-center justify-center">
+                <Image
+                  src={BRAND.logoPath}
+                  alt={BRAND.name}
+                  width={32}
+                  height={32}
+                  className="object-contain"
+                />
+              </div>
+              <span className="truncate text-sm">{BRAND.name}</span>
             </Link>
           )}
           {collapsed && (
             <Link href="/" className="flex items-center justify-center">
-<div className="flex size-7 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground text-xs font-bold">
-                  {BRAND.logo}
-                </div>
+              <div className="relative flex size-8 items-center justify-center">
+                <Image
+                  src={BRAND.logoPath}
+                  alt={BRAND.name}
+                  width={32}
+                  height={32}
+                  className="object-contain"
+                />
+              </div>
             </Link>
           )}
         </div>

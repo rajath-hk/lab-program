@@ -13,10 +13,12 @@ import {
   BookOpen,
   FileQuestion,
   AlertCircle,
+  MessageSquare,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
+import CodeAnnotations from "@/components/teacher/CodeAnnotations"
 
 interface SubmissionDetail {
   id: string
@@ -58,9 +60,11 @@ export default function SubmissionReviewPage() {
   const [submission, setSubmission] = useState<SubmissionDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [feedback, setFeedback] = useState("")
+  const [annotations, setAnnotations] = useState<{ lineNumber: number; text: string; createdAt: string }[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [action, setAction] = useState<"APPROVED" | "REJECTED" | null>(null)
+  const [showAnnotations, setShowAnnotations] = useState(false)
 
   const fetchSubmission = useCallback(async () => {
     try {
@@ -69,6 +73,12 @@ export default function SubmissionReviewPage() {
       const data = await res.json()
       setSubmission(data)
       setFeedback(data.feedback || "")
+      try {
+        const parsed = JSON.parse(data.annotations || "[]")
+        setAnnotations(Array.isArray(parsed) ? parsed : [])
+      } catch {
+        setAnnotations([])
+      }
     } catch (err) {
       console.error(err)
     } finally {
@@ -89,7 +99,7 @@ export default function SubmissionReviewPage() {
       const res = await fetch(`/api/teacher/submissions/${submissionId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status, feedback }),
+        body: JSON.stringify({ status, feedback, annotations }),
       })
 
       if (!res.ok) {
@@ -193,22 +203,48 @@ export default function SubmissionReviewPage() {
             </CardContent>
           </Card>
 
-          {/* Code Viewer */}
+          {/* Code Viewer with Annotations */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-sm font-medium">Submitted Code</CardTitle>
-              {submission.language && (
-                <span className="rounded-md bg-muted px-2 py-0.5 text-[10px] font-medium uppercase text-muted-foreground">
-                  {submission.language}
-                </span>
-              )}
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-sm font-medium">Submitted Code</CardTitle>
+                {annotations.length > 0 && (
+                  <span className="rounded-md bg-info/10 px-1.5 py-0.5 text-[10px] font-medium text-info">
+                    {annotations.length} annotation{annotations.length > 1 ? "s" : ""}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="xs"
+                  variant={showAnnotations ? "default" : "outline"}
+                  onClick={() => setShowAnnotations(!showAnnotations)}
+                  className="h-7 gap-1"
+                >
+                  <MessageSquare className="size-3" />
+                  Annotate
+                </Button>
+                {submission.language && (
+                  <span className="rounded-md bg-muted px-2 py-0.5 text-[10px] font-medium uppercase text-muted-foreground">
+                    {submission.language}
+                  </span>
+                )}
+              </div>
             </CardHeader>
             <CardContent className="p-0">
-              <pre className="overflow-x-auto p-4 text-sm">
-                <code className="font-mono leading-relaxed">
-                  {submission.code}
-                </code>
-              </pre>
+              {showAnnotations ? (
+                <CodeAnnotations
+                  code={submission.code}
+                  annotations={annotations}
+                  onAnnotationsChange={setAnnotations}
+                />
+              ) : (
+                <pre className="overflow-x-auto p-4 text-sm">
+                  <code className="font-mono leading-relaxed">
+                    {submission.code}
+                  </code>
+                </pre>
+              )}
             </CardContent>
           </Card>
 

@@ -6,6 +6,7 @@ import { signIn } from "next-auth/react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
+import Image from "next/image"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { BRAND } from "@/lib/branding"
 import { Input } from "@/components/ui/input"
@@ -51,12 +52,20 @@ export default function LoginPage() {
       }
 
       if (result?.ok) {
-        // Fetch session to get role
+        // Fetch session to get role and onboarding status
         const sessionRes = await fetch("/api/auth/session")
         const session = await sessionRes.json()
 
         if (session?.user?.role) {
-          router.push(getRoleDashboard(session.user.role))
+          // If student is not onboarded, redirect to onboarding page
+          if (
+            session.user.role === "STUDENT" &&
+            session.user.isOnboarded === false
+          ) {
+            router.push("/onboarding")
+          } else {
+            router.push(getRoleDashboard(session.user.role))
+          }
         } else {
           router.push("/login")
         }
@@ -76,6 +85,16 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
+          <div className="mx-auto mb-4 flex size-20 items-center justify-center">
+            <Image
+              src={BRAND.logoPath}
+              alt={BRAND.name}
+              width={80}
+              height={80}
+              className="object-contain"
+              priority
+            />
+          </div>
           <CardTitle className="text-2xl font-bold">{BRAND.name}</CardTitle>
           <CardDescription>{BRAND.name} Programming Lab</CardDescription>
         </CardHeader>

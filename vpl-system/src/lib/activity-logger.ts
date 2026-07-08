@@ -17,9 +17,12 @@ type ActionType =
   | "UPDATE_QUESTION"
   | "DELETE_QUESTION"
   | "SUBMIT_CODE"
+  | "SUBMIT_CODE_AUTO_APPROVED"
   | "REVIEW_SUBMISSION"
   | "CREATE_BULK_UPLOAD"
   | "TAB_SWITCH"
+  | "COMPLETE_ONBOARDING"
+  | "BULK_IMPORT_STUDENTS"
 
 export async function logActivity(
   userId: string,

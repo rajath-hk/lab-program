@@ -58,12 +58,13 @@ export async function PUT(
     }
 
     // Normal update
-    const { title, description, difficulty, starterCode } = body
+    const { title, description, difficulty, starterCode, testCases } = body
     const data: any = {}
     if (title !== undefined) data.title = title
     if (description !== undefined) data.description = description
     if (difficulty !== undefined) data.difficulty = difficulty
     if (starterCode !== undefined) data.starterCode = starterCode
+    if (testCases !== undefined) data.testCases = JSON.stringify(testCases)
 
     const question = await prisma.question.update({
       where: { id: questionId },
