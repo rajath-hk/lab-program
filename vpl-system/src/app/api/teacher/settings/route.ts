@@ -54,7 +54,14 @@ export async function PUT(request: Request) {
   try {
     const teacher = await prisma.teacher.findUnique({
       where: { userId: session.user.id },
-      include: { user: true },
+      include: {
+        user: {
+          select: {
+            id: true, name: true, email: true, password: true,
+            role: true, createdAt: true, isOnboarded: true,
+          },
+        },
+      },
     })
 
     if (!teacher) {

@@ -20,6 +20,8 @@ type ActionType =
   | "REVIEW_SUBMISSION"
   | "CREATE_BULK_UPLOAD"
   | "TAB_SWITCH"
+  | "COMPLETE_ONBOARDING"
+  | "BULK_IMPORT_STUDENTS"
 
 export async function logActivity(
   userId: string,

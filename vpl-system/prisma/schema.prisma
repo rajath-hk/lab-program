@@ -26,23 +26,25 @@ enum SubmissionStatus {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  name      String
-  email     String   @unique
-  password  String
-  role      Role     @default(STUDENT)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String   @id @default(cuid())
+  name        String
+  email       String   @unique
+  password    String
+  role        Role     @default(STUDENT)
+  isOnboarded Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  student   Student?
-  teacher   Teacher?
-  activityLogs ActivityLog[]
+  student       Student?
+  teacher       Teacher?
+  activityLogs  ActivityLog[]
+  notifications Notification[]
 }
 
 model ActivityLog {
   id        String   @id @default(cuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   action    String
   details   String?
   createdAt DateTime @default(now())
@@ -50,6 +52,20 @@ model ActivityLog {
   @@index([userId])
   @@index([createdAt])
   @@index([action])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String   // "NEW_ASSIGNMENT" | "GRADE_PUBLISHED" | "ANNOTATION_ADDED"
+  message   String
+  link      String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
 }
 
 model Department {
@@ -69,6 +85,9 @@ model Student {
   semester     Int
   submissions  Submission[]
   createdAt    DateTime   @default(now())
+
+  @@index([departmentId])
+  @@index([semester])
 }
 
 model Teacher {
@@ -78,6 +97,8 @@ model Teacher {
   employeeId String    @unique
   programs   Program[]
   createdAt  DateTime  @default(now())
+
+  @@index([userId])
 }
 
 model Program {
@@ -92,6 +113,9 @@ model Program {
   bulkUploads  QuestionBulkUpload[]
   createdAt    DateTime             @default(now())
   updatedAt    DateTime             @updatedAt
+
+  @@index([teacherId])
+  @@index([unlockDate])
 }
 
 model Question {
@@ -103,8 +127,12 @@ model Question {
   difficulty  Difficulty   @default(EASY)
   orderNumber Int
   starterCode String?
+  testCases   String?      // JSON array: [{ input, expectedOutput }]
   submissions Submission[]
   createdAt   DateTime     @default(now())
+
+  @@index([programId])
+  @@unique([programId, orderNumber])
 }
 
 model QuestionBulkUpload {
@@ -118,16 +146,22 @@ model QuestionBulkUpload {
 }
 
 model Submission {
-  id         String           @id @default(cuid())
-  studentId  String
-  student    Student          @relation(fields: [studentId], references: [id])
-  questionId String
-  question   Question         @relation(fields: [questionId], references: [id])
-  code       String
-  language   String
-  output     String?
-  status     SubmissionStatus @default(PENDING)
-  feedback   String?
-  createdAt  DateTime         @default(now())
-  updatedAt  DateTime         @updatedAt
+  id          String           @id @default(cuid())
+  studentId   String
+  student     Student          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  questionId  String
+  question    Question         @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  code        String
+  language    String
+  output      String?
+  status      SubmissionStatus @default(PENDING)
+  feedback    String?
+  annotations String?          // JSON array: [{ lineNumber, text, createdAt }]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([studentId])
+  @@index([questionId])
+  @@index([status])
+  @@unique([studentId, questionId])
 }

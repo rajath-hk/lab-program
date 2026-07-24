@@ -5,6 +5,7 @@ CREATE TABLE "User" (
     "email" TEXT NOT NULL,
     "password" TEXT NOT NULL,
     "role" TEXT NOT NULL DEFAULT 'STUDENT',
+    "isOnboarded" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL
 );
@@ -69,6 +70,7 @@ CREATE TABLE "Question" (
     "difficulty" TEXT NOT NULL DEFAULT 'EASY',
     "orderNumber" INTEGER NOT NULL,
     "starterCode" TEXT,
+    "testCases" TEXT,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "Question_programId_fkey" FOREIGN KEY ("programId") REFERENCES "Program" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
@@ -94,6 +96,7 @@ CREATE TABLE "Submission" (
     "output" TEXT,
     "status" TEXT NOT NULL DEFAULT 'PENDING',
     "feedback" TEXT,
+    "annotations" TEXT,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
     CONSTRAINT "Submission_studentId_fkey" FOREIGN KEY ("studentId") REFERENCES "Student" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,

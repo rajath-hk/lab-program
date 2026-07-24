@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { logActivity } from "@/lib/activity-logger"
 
-export async function GET() {
+export async function GET(request: Request) {
   const session = await getServerSession(authOptions)
 
   if (!session || session.user.role !== "TEACHER") {
@@ -14,25 +14,32 @@ export async function GET() {
   try {
     const teacher = await prisma.teacher.findUnique({
       where: { userId: session.user.id },
+      select: { id: true },
     })
 
     if (!teacher) {
       return NextResponse.json({ error: "Teacher profile not found" }, { status: 404 })
     }
 
-    const programs = await prisma.program.findMany({
-      where: { teacherId: teacher.id },
-      orderBy: { createdAt: "desc" },
-      include: {
-        _count: { select: { questions: true } },
-        questions: {
-          select: { id: true },
-          take: 1, // just to check if questions exist
-        },
-      },
-    })
+    const { searchParams } = new URL(request.url)
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10))
+    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "50", 10)))
+    const skip = (page - 1) * limit
 
-    return NextResponse.json(programs)
+    const [programs, total] = await Promise.all([
+      prisma.program.findMany({
+        where: { teacherId: teacher.id },
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: limit,
+        include: {
+          _count: { select: { questions: true } },
+        },
+      }),
+      prisma.program.count({ where: { teacherId: teacher.id } }),
+    ])
+
+    return NextResponse.json({ programs, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } })
   } catch (error) {
     console.error("Failed to fetch programs:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -49,6 +56,7 @@ export async function POST(request: Request) {
   try {
     const teacher = await prisma.teacher.findUnique({
       where: { userId: session.user.id },
+      select: { id: true },
     })
 
     if (!teacher) {

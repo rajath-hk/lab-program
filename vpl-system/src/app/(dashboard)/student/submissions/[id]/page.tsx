@@ -11,6 +11,7 @@ import {
   XCircle,
   FileCode,
   AlertCircle,
+  MessageSquare,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -49,12 +50,20 @@ export default function StudentSubmissionDetailPage() {
 
   const [submission, setSubmission] = useState<SubmissionDetail | null>(null)
   const [loading, setLoading] = useState(true)
+  const [annotations, setAnnotations] = useState<{ lineNumber: number; text: string; createdAt: string }[]>([])
 
   const fetchSubmission = useCallback(async () => {
     try {
       const res = await fetch(`/api/student/submissions/${submissionId}`)
       if (!res.ok) throw new Error("Failed to fetch submission")
-      setSubmission(await res.json())
+      const data = await res.json()
+      setSubmission(data)
+      try {
+        const parsed = JSON.parse(data.annotations || "[]")
+        setAnnotations(Array.isArray(parsed) ? parsed : [])
+      } catch {
+        setAnnotations([])
+      }
     } catch (err) {
       console.error(err)
     } finally {
@@ -230,6 +239,33 @@ export default function StudentSubmissionDetailPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* Code Annotations */}
+          {annotations.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <MessageSquare className="size-4" />
+                  Line Annotations ({annotations.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {annotations.map((a, i) => (
+                  <div key={i} className="rounded-lg border bg-muted/30 p-3 text-sm">
+                    <div className="mb-1 flex items-center gap-2">
+                      <span className="rounded bg-info/10 px-1.5 py-0.5 text-[10px] font-medium text-info">
+                        Line {a.lineNumber}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {new Date(a.createdAt).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <p className="text-sm text-foreground/80">{a.text}</p>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Feedback */}
           {submission.feedback && (

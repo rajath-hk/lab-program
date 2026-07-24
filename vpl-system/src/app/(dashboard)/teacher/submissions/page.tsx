@@ -64,7 +64,8 @@ export default function TeacherSubmissionsPage() {
 
       const res = await fetch(`/api/teacher/submissions?${params}`)
       if (!res.ok) throw new Error("Failed to fetch submissions")
-      setSubmissions(await res.json())
+      const data = await res.json()
+      setSubmissions(data.submissions)
     } catch (err) {
       console.error(err)
     } finally {
@@ -76,7 +77,8 @@ export default function TeacherSubmissionsPage() {
     try {
       const res = await fetch("/api/teacher/programs")
       if (!res.ok) throw new Error("Failed to fetch programs")
-      setPrograms(await res.json())
+      const data = await res.json()
+      setPrograms(data.programs)
     } catch (err) {
       console.error(err)
     }

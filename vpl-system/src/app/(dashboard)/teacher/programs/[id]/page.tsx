@@ -15,11 +15,14 @@ import {
   ChevronDown,
   Upload,
   History,
+  Search,
+  FlaskConical,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
+import TestCaseEditor from "@/components/teacher/TestCaseEditor"
 
 interface Question {
   id: string
@@ -66,8 +69,13 @@ export default function ProgramDetailPage() {
   const [qDescription, setQDescription] = useState("")
   const [qDifficulty, setQDifficulty] = useState("EASY")
   const [qStarterCode, setQStarterCode] = useState("")
+  const [qTestCases, setQTestCases] = useState<{ input: string; expectedOutput: string }[]>([])
   const [qSaving, setQSaving] = useState(false)
   const [qError, setQError] = useState<string | null>(null)
+
+  // Search filter
+  const [questionSearch, setQuestionSearch] = useState("")
+  const [showTestCases, setShowTestCases] = useState(false)
 
   // Bulk upload
   const [showBulkModal, setShowBulkModal] = useState(false)
@@ -102,6 +110,7 @@ export default function ProgramDetailPage() {
     setQDescription("")
     setQDifficulty("EASY")
     setQStarterCode("")
+    setQTestCases([])
     setQError(null)
   }
 
@@ -117,6 +126,12 @@ export default function ProgramDetailPage() {
     setQDescription(q.description)
     setQDifficulty(q.difficulty || "EASY")
     setQStarterCode(q.starterCode || "")
+    try {
+      const parsed = JSON.parse((q as any).testCases || "[]")
+      setQTestCases(Array.isArray(parsed) ? parsed : [])
+    } catch {
+      setQTestCases([])
+    }
     setQError(null)
     setShowQuestionModal(true)
   }
@@ -132,6 +147,7 @@ export default function ProgramDetailPage() {
         description: qDescription,
         difficulty: qDifficulty,
         starterCode: qStarterCode || null,
+        testCases: qTestCases,
       }
 
       const url = editingQuestion
@@ -327,7 +343,23 @@ export default function ProgramDetailPage() {
           </div>
         </div>
 
-        {program.questions.length === 0 ? (
+        {/* Search filter */}
+        <div className="relative max-w-xs">
+          <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="text"
+            placeholder="Search questions..."
+            value={questionSearch}
+            onChange={(e) => setQuestionSearch(e.target.value)}
+            className="h-8 w-full rounded-lg border border-input bg-transparent pl-8 pr-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 placeholder:text-muted-foreground"
+          />
+        </div>
+
+        {(() => {
+          const filtered = program.questions.filter((q) =>
+            !questionSearch || q.title.toLowerCase().includes(questionSearch.toLowerCase())
+          )
+          return filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-12 text-center">
             <FileQuestion className="size-10 text-muted-foreground/40" />
             <h3 className="mt-3 text-sm font-medium">No questions yet</h3>
@@ -341,7 +373,7 @@ export default function ProgramDetailPage() {
           </div>
         ) : (
           <div className="space-y-3">
-            {program.questions.map((question, index) => (
+            {filtered.map((question, index) => (
               <Card key={question.id} className="relative">
                 <CardContent className="p-4">
                   <div className="flex items-start gap-3">
@@ -423,7 +455,8 @@ export default function ProgramDetailPage() {
               </Card>
             ))}
           </div>
-        )}
+        )
+        })()}
       </div>
 
       {/* Question Modal */}
@@ -505,6 +538,27 @@ export default function ProgramDetailPage() {
                   This code will be pre-filled in the editor when students start
                   this question.
                 </p>
+              </div>
+
+              {/* Test Cases */}
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setShowTestCases(!showTestCases)}
+                  className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <FlaskConical className="size-4" />
+                  Test Cases
+                  <span className="text-xs text-muted-foreground">({qTestCases.length})</span>
+                </button>
+                {showTestCases && (
+                  <div className="mt-3">
+                    <TestCaseEditor
+                      testCases={qTestCases}
+                      onChange={setQTestCases}
+                    />
+                  </div>
+                )}
               </div>
 
               {qError && (

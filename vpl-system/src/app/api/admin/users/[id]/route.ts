@@ -57,13 +57,14 @@ export async function PUT(
 
   try {
     const body = await request.json()
-    const { name, email, password, role, rollNumber, employeeId, departmentId, semester } = body
+    const { name, email, password, role, rollNumber, employeeId, departmentId, semester, isOnboarded } = body
 
     const updateData: any = {}
     if (name) updateData.name = name
     if (email) updateData.email = email
     if (password) updateData.password = await bcrypt.hash(password, 10)
     if (role) updateData.role = role
+    if (isOnboarded !== undefined) updateData.isOnboarded = isOnboarded
 
     // If role changed to different type, handle related records
     const existingUser = await prisma.user.findUnique({

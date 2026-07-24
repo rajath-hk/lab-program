@@ -1,14 +1,22 @@
+import { getServerSession } from "next-auth"
+import { authOptions } from "@/lib/auth"
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 
 export async function GET() {
+  const session = await getServerSession(authOptions)
+  if (!session || session.user.role !== "ADMIN") {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
   const encoder = new TextEncoder()
+  let interval: ReturnType<typeof setInterval> | null = null
+
   const stream = new ReadableStream({
     async start(controller) {
       // Send initial comment to keep connection alive
       controller.enqueue(encoder.encode(": connected\n\n"))
 
-      const interval = setInterval(async () => {
+      interval = setInterval(async () => {
         try {
           const now = new Date()
           const oneMinuteAgo = new Date(now.getTime() - 60_000)
@@ -42,12 +50,12 @@ export async function GET() {
           console.error("Analytics stream error", err)
         }
       }, 5000) // every 5 seconds
-
-      // Cleanup when client disconnects
-      controller.signal.addEventListener("abort", () => {
+    },
+    cancel() {
+      if (interval) {
         clearInterval(interval)
-        controller.close()
-      })
+        interval = null
+      }
     },
   })
 

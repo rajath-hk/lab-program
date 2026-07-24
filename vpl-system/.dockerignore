@@ -1,0 +1,9 @@
+node_modules
+.next
+dev.db
+.env
+.git
+.gitignore
+*.md
+*.log
+.env.example

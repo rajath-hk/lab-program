@@ -13,6 +13,7 @@ async function getTeacherSession() {
 
   const teacher = await prisma.teacher.findUnique({
     where: { userId: session.user.id },
+    select: { id: true },
   })
   if (!teacher) return null
 
@@ -33,6 +34,7 @@ export async function POST(
   try {
     const program = await prisma.program.findFirst({
       where: { id, teacherId: auth.teacher.id },
+      select: { id: true, title: true },
     })
     if (!program) {
       return NextResponse.json({ error: "Program not found" }, { status: 404 })
@@ -133,63 +135,64 @@ export async function POST(
       )
     }
 
-    // Get the current max order number (for questions without explicit order)
-    const lastQuestion = await prisma.question.findFirst({
-      where: { programId: id },
-      orderBy: { orderNumber: "desc" },
-      select: { orderNumber: true },
-    })
-    let nextAutoOrder = (lastQuestion?.orderNumber ?? 0) + 1
-
-    // Create all questions in a transaction
-    const createdQuestions = await prisma.$transaction(
-      validQuestions.map((q) => {
-        // Use provided order number if valid, otherwise auto-assign
-        const order = q.orderNumber > 0 ? q.orderNumber : nextAutoOrder++
-        return prisma.question.create({
-          data: {
-            title: q.title,
-            description: q.description,
-            difficulty: q.difficulty as any,
-            starterCode: q.starterCode,
-            orderNumber: order,
-            programId: id,
-          },
-        })
+    // Create all questions and backup record in a single transaction
+    const result = await prisma.$transaction(async (tx) => {
+      const lastQuestion = await tx.question.findFirst({
+        where: { programId: id },
+        orderBy: { orderNumber: "desc" },
+        select: { orderNumber: true },
       })
-    )
+      let nextAutoOrder = (lastQuestion?.orderNumber ?? 0) + 1
 
-    // Create a backup record
-    const backupData = {
-      fileName: file.name,
-      uploadedAt: new Date().toISOString(),
-      questions: validQuestions.map((q) => ({
-        title: q.title,
-        description: q.description,
-        difficulty: q.difficulty,
-        starterCode: q.starterCode,
-      })),
-    }
+      const createdQuestions = await Promise.all(
+        validQuestions.map((q) => {
+          const order = q.orderNumber > 0 ? q.orderNumber : nextAutoOrder++
+          return tx.question.create({
+            data: {
+              title: q.title,
+              description: q.description,
+              difficulty: q.difficulty as any,
+              starterCode: q.starterCode,
+              orderNumber: order,
+              programId: id,
+            },
+          })
+        })
+      )
 
-    await prisma.questionBulkUpload.create({
-      data: {
-        programId: id,
+      const backupData = {
         fileName: file.name,
-        questionCount: createdQuestions.length,
-        questions: JSON.stringify(backupData),
-      },
+        uploadedAt: new Date().toISOString(),
+        questions: validQuestions.map((q) => ({
+          title: q.title,
+          description: q.description,
+          difficulty: q.difficulty,
+          starterCode: q.starterCode,
+        })),
+      }
+
+      await tx.questionBulkUpload.create({
+        data: {
+          programId: id,
+          fileName: file.name,
+          questionCount: createdQuestions.length,
+          questions: JSON.stringify(backupData),
+        },
+      })
+
+      return createdQuestions
     })
 
     await logActivity(
       auth.session.user.id,
       "CREATE_BULK_UPLOAD",
-      `Bulk uploaded ${createdQuestions.length} questions to program "${program.title}" from "${file.name}"`
+      `Bulk uploaded ${result.length} questions to program "${program.title}" from "${file.name}"`
     )
 
     return NextResponse.json({
       success: true,
-      count: createdQuestions.length,
-      questions: createdQuestions,
+      count: result.length,
+      questions: result,
     })
   } catch (error) {
     console.error("Failed to bulk upload questions:", error)
@@ -214,6 +217,7 @@ export async function GET(
   try {
     const program = await prisma.program.findFirst({
       where: { id, teacherId: auth.teacher.id },
+      select: { id: true },
     })
     if (!program) {
       return NextResponse.json({ error: "Program not found" }, { status: 404 })

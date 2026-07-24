@@ -25,11 +25,10 @@ export async function GET() {
 
     // Available programs (unlocked)
     const now = new Date()
-    const availablePrograms = await prisma.program.count({
-      where: { unlockDate: { lte: now } },
-    })
-
-    const totalPrograms = await prisma.program.count()
+    const [totalPrograms, availablePrograms] = await Promise.all([
+      prisma.program.count(),
+      prisma.program.count({ where: { unlockDate: { lte: now } } }),
+    ])
 
     const submissionCounts = await prisma.submission.groupBy({
       by: ["status"],

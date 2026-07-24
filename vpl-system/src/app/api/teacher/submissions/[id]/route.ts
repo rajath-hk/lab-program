@@ -82,7 +82,7 @@ export async function PUT(
     }
 
     const body = await request.json()
-    const { status, feedback } = body
+    const { status, feedback, annotations } = body
 
     if (!status || !["APPROVED", "REJECTED"].includes(status)) {
       return NextResponse.json(
@@ -91,12 +91,17 @@ export async function PUT(
       )
     }
 
+    const data: any = {
+      status,
+      feedback: feedback || null,
+    }
+    if (annotations !== undefined) {
+      data.annotations = JSON.stringify(annotations)
+    }
+
     const submission = await prisma.submission.update({
       where: { id },
-      data: {
-        status,
-        feedback: feedback || null,
-      },
+      data,
       include: {
         student: {
           include: {

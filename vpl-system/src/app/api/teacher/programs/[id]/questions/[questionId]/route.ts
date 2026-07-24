@@ -10,6 +10,7 @@ async function getTeacherSession() {
 
   const teacher = await prisma.teacher.findUnique({
     where: { userId: session.user.id },
+    select: { id: true },
   })
   if (!teacher) return null
 
@@ -31,6 +32,7 @@ export async function PUT(
     // Verify the program belongs to this teacher
     const program = await prisma.program.findFirst({
       where: { id, teacherId: auth.teacher.id },
+      select: { id: true, title: true },
     })
     if (!program) {
       return NextResponse.json({ error: "Program not found" }, { status: 404 })
@@ -58,12 +60,13 @@ export async function PUT(
     }
 
     // Normal update
-    const { title, description, difficulty, starterCode } = body
+    const { title, description, difficulty, starterCode, testCases } = body
     const data: any = {}
     if (title !== undefined) data.title = title
     if (description !== undefined) data.description = description
     if (difficulty !== undefined) data.difficulty = difficulty
     if (starterCode !== undefined) data.starterCode = starterCode
+    if (testCases !== undefined) data.testCases = JSON.stringify(testCases)
 
     const question = await prisma.question.update({
       where: { id: questionId },
@@ -97,6 +100,7 @@ export async function DELETE(
   try {
     const program = await prisma.program.findFirst({
       where: { id, teacherId: auth.teacher.id },
+      select: { id: true },
     })
     if (!program) {
       return NextResponse.json({ error: "Program not found" }, { status: 404 })

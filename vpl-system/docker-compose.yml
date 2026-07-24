@@ -1,0 +1,16 @@
+services:
+  vpl:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - vpl-data:/app/prisma
+    environment:
+      - DATABASE_URL=file:./dev.db
+      - NEXTAUTH_SECRET=vpl-lab-system-2026-secure-key-x9k2m4n7p1q3r5t8
+      - NEXTAUTH_URL=http://localhost:3000
+      - NODE_ENV=production
+    restart: unless-stopped
+
+volumes:
+  vpl-data:

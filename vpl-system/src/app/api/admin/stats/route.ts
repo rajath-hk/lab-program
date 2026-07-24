@@ -33,12 +33,11 @@ export async function GET() {
       },
     })
 
-    const roleDistribution = await Promise.all(
-      ["ADMIN", "TEACHER", "STUDENT"].map(async (role) => {
-        const count = await prisma.user.count({ where: { role: role as any } })
-        return { role, count }
-      })
-    )
+    const roleGroups = await prisma.user.groupBy({
+      by: ["role"],
+      _count: true,
+    })
+    const roleDistribution = roleGroups.map((g) => ({ role: g.role, count: g._count }))
 
     return NextResponse.json({
       totalUsers,

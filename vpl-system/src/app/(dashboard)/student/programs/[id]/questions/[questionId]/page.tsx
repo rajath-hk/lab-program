@@ -23,10 +23,17 @@ import {
   Save,
   Undo2,
   X,
+  FlaskConical,
+  Network,
+  BarChart,
+
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { Panel, Group, Separator } from "react-resizable-panels"
+import SqlTerminal from "@/components/student/SqlTerminal"
+import TestCaseResults from "@/components/student/TestCaseResults"
+import NetworkSimulation, { type NetworkTopology } from "@/components/student/NetworkSimulation"
 
 // Dynamically import Monaco editor (no SSR)
 const MonacoEditor = dynamic(
@@ -53,6 +60,18 @@ interface SubmissionResult {
   feedback: string | null
   createdAt: string
   language: string
+}
+
+interface SqlResultRow {
+  [key: string]: unknown
+}
+
+interface SqlResult {
+  type: "table" | "message" | "error"
+  columns?: string[]
+  rows?: SqlResultRow[]
+  affectedRows?: number
+  message: string
 }
 
 const statusColors: Record<string, string> = {
@@ -99,10 +118,11 @@ const SUPPORTED_LANGUAGES = [
   { id: "c", label: "C", ext: ".c" },
   { id: "rust", label: "Rust", ext: ".rs" },
   { id: "go", label: "Go", ext: ".go" },
+  { id: "sql", label: "SQL (Oracle)", ext: ".sql" },
   { id: "plaintext", label: "Plain Text", ext: ".txt" },
 ]
 
-type ConsoleTab = "testcase" | "output" | "submission"
+type ConsoleTab = "testcase" | "output" | "submission" | "networklab" | "charts"
 
 // --- localStorage draft helpers ---
 const DRAFT_PREFIX = "amc-draft-"
@@ -169,12 +189,24 @@ export default function CodeEditorPage() {
     stderr: string
     exitCode: number | null
     compileOutput: string | null
+    sqlResults?: SqlResult[]
+    testResults?: { input: string; expectedOutput: string; actualOutput: string; passed: boolean }[]
+    images?: { name: string; data: string; mime: string }[]
   } | null>(null)
   const [runError, setRunError] = useState<string | null>(null)
 
+  // SQL terminal state
+  const [sqlResults, setSqlResults] = useState<SqlResult[] | null>(null)
+  const [sqlFullScreen, setSqlFullScreen] = useState(false)
+
   // Console state
   const [consoleTab, setConsoleTab] = useState<ConsoleTab>("testcase")
+  const [testCaseRunResults, setTestCaseRunResults] = useState<{ input: string; expectedOutput: string; actualOutput: string; passed: boolean }[] | null>(null)
   const [consoleOpen, setConsoleOpen] = useState(true)
+
+  // Network simulation state
+  const isNetworkProgram = question?.program?.title?.toLowerCase().includes("network") ?? false
+  const [networkTopology, setNetworkTopology] = useState<NetworkTopology | null>(null)
 
   // Panel ref for programmatic collapse/expand
   const descPanelRef = useRef<{ collapse: () => void; expand: () => void; isCollapsed: () => boolean } | null>(null)
@@ -257,7 +289,6 @@ export default function CodeEditorPage() {
       if (isCtrlOrCmd && e.key === "Enter" && !e.shiftKey) {
         e.preventDefault()
         e.stopPropagation()
-        // Don't run if Monaco editor is in the middle of a composition (e.g., IME input)
         if (e.isComposing) return
         handleRunRef.current()
         return
@@ -283,10 +314,9 @@ export default function CodeEditorPage() {
       }
     }
 
-    // Use capture phase to intercept before Monaco
     document.addEventListener("keydown", handleKeyDown, { capture: true })
     return () => document.removeEventListener("keydown", handleKeyDown, { capture: true })
-  }, []) // Stable — all deps accessed through refs
+  }, [])
 
   async function handleRun() {
     if (!code.trim()) {
@@ -299,6 +329,7 @@ export default function CodeEditorPage() {
     setRunning(true)
     setRunResult(null)
     setRunError(null)
+    setSqlResults(null)
     setConsoleTab("output")
     setConsoleOpen(true)
 
@@ -314,7 +345,42 @@ export default function CodeEditorPage() {
         throw new Error(data.error || "Execution failed")
       }
 
-      setRunResult(await res.json())
+      const data = await res.json()
+      setRunResult(data)
+      if (data.sqlResults) {
+        setSqlResults(data.sqlResults)
+      }
+    } catch (err: any) {
+      setRunError(err.message)
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  async function handleSqlRun(sql: string) {
+    setRunning(true)
+    setRunResult(null)
+    setRunError(null)
+    setSqlResults(null)
+
+    try {
+      const res = await fetch("/api/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: sql, language: "sql" }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || "Execution failed")
+      }
+
+      const data = await res.json()
+      setCode(sql)
+      setRunResult(data)
+      if (data.sqlResults) {
+        setSqlResults(data.sqlResults)
+      }
     } catch (err: any) {
       setRunError(err.message)
     } finally {
@@ -382,15 +448,12 @@ export default function CodeEditorPage() {
 
   // --- Auto-save draft to localStorage ---
   useEffect(() => {
-    // Wait until question is fully loaded and we have code set
     if (!mounted || !question) return
 
-    // Clear any pending timer
     if (autoSaveTimerRef.current) {
       clearTimeout(autoSaveTimerRef.current)
     }
 
-    // Debounce by 1 second
     autoSaveTimerRef.current = setTimeout(() => {
       saveDraft(questionId, code, language)
       setAutoSaving(false)
@@ -411,12 +474,10 @@ export default function CodeEditorPage() {
     if (!question || mounted === false || initialLoadDoneRef.current) return
     initialLoadDoneRef.current = true
 
-    // Only check draft if there's no existing submission (don't overwrite submitted code)
     if (submission) return
 
     const draft = loadDraft(questionId)
     if (draft && draft.code.trim()) {
-      // Only show banner if draft differs from current code
       const starterOrEmpty = question.starterCode || ""
       if (draft.code !== starterOrEmpty) {
         setHasDraft(true)
@@ -426,16 +487,14 @@ export default function CodeEditorPage() {
     }
   }, [question, mounted, submission, questionId])
 
-  // Log tab switches and display warning
+  // Log tab switches
   const tabSwitchFirst = useRef(true);
   useEffect(() => {
     if (tabSwitchFirst.current) {
       tabSwitchFirst.current = false;
       return;
     }
-    // Show warning to student
     setShowTabSwitchWarning(true);
-    // Log activity to server (ignore errors)
     fetch("/api/student/tab-switch", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -467,6 +526,8 @@ export default function CodeEditorPage() {
       minute: "2-digit",
     })
   }
+
+  const isSql = language === "sql"
 
   if (loading) {
     return (
@@ -600,11 +661,11 @@ export default function CodeEditorPage() {
           {/* ===== LEFT PANEL: Problem Description ===== */}
           <Panel
             id="description-panel"
-            defaultSize={300}
-            minSize={400}
-            maxSize={500}
+            defaultSize={400}
+            minSize={200}
+            maxSize={600}
             collapsible={true}
-            collapsedSize={45}
+            collapsedSize={5}
             onResize={(size: any) => {
               const sizeNum = typeof size === "string" ? parseFloat(size) : Number(size)
               setDescriptionCollapsed(sizeNum === 0)
@@ -661,7 +722,7 @@ export default function CodeEditorPage() {
                   </div>
 
                   {/* Starter Code Section */}
-                  {question.starterCode && (
+                  {question.starterCode && !isSql && (
                     <div className="mt-6">
                       <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                         <FileCode className="size-3.5" />
@@ -670,6 +731,23 @@ export default function CodeEditorPage() {
                       <div className="overflow-hidden rounded-lg border bg-secondary/40">
                         <pre className="overflow-x-auto p-4 text-xs leading-relaxed">
                           <code className="font-mono text-foreground">
+                            {question.starterCode}
+                          </code>
+                        </pre>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* For SQL questions - show starter SQL as a sample */}
+                  {question.starterCode && isSql && (
+                    <div className="mt-6">
+                      <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        <Terminal className="size-3.5" />
+                        Sample SQL
+                      </h3>
+                      <div className="overflow-hidden rounded-lg border bg-[#0d1117]/80">
+                        <pre className="overflow-x-auto p-4 text-xs leading-relaxed">
+                          <code className="font-mono text-[#7ee787]">
                             {question.starterCode}
                           </code>
                         </pre>
@@ -734,23 +812,23 @@ export default function CodeEditorPage() {
           </Separator>
 
           {/* ===== RIGHT PANEL: Editor + Console ===== */}
-          <Panel id="editor-panel" defaultSize={15} minSize={10} className="h-full">
+          <Panel id="editor-panel" defaultSize={60} minSize={30} className="h-full">
             <div className="flex h-full flex-col bg-secondary">
               {/* ---- Editor Toolbar ---- */}
               <div className="flex h-12 shrink-0 items-center justify-between border-b bg-secondary/60 px-4">
                 <div className="flex items-center gap-2">
                   <FileCode className="size-4 text-muted-foreground" />
                   <span className="text-sm font-medium text-foreground">
-                    code.{SUPPORTED_LANGUAGES.find((l) => l.id === language)?.ext || ".txt"}
+                    {isSql ? "query.sql" : `code.${SUPPORTED_LANGUAGES.find((l) => l.id === language)?.ext || ".txt"}`}
                   </span>
                   {/* Auto-save indicator */}
-                  {hasDraft && !showDraftBanner && (
+                  {hasDraft && !showDraftBanner && !isSql && (
                     <span className="flex items-center gap-1 rounded bg-pending-bg/15 px-1.5 py-0.5 text-xs text-pending">
                       <Save className="size-3" />
                       Saved
                     </span>
                   )}
-                  {autoSaving && (
+                  {autoSaving && !isSql && (
                     <span className="flex items-center gap-1 text-xs text-muted-foreground">
                       <Loader2 className="size-3 animate-spin" />
                       Saving...
@@ -758,25 +836,29 @@ export default function CodeEditorPage() {
                   )}
                 </div>
                 <div className="flex items-center gap-2">
-                  {/* Font size controls */}
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => setFontSize((s) => Math.max(10, s - 1))}
-                      className="flex size-6 items-center justify-center rounded text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-                      title="Decrease font size"
-                    >
-                      A-
-                    </button>
-                    <span className="w-6 text-center text-xs text-muted-foreground">{fontSize}</span>
-                    <button
-                      onClick={() => setFontSize((s) => Math.min(24, s + 1))}
-                      className="flex size-6 items-center justify-center rounded text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-                      title="Increase font size"
-                    >
-                      A+
-                    </button>
-                  </div>
-                  <div className="h-4 w-px bg-border" />
+                  {/* Font size controls - only for non-SQL */}
+                  {!isSql && (
+                    <>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => setFontSize((s) => Math.max(10, s - 1))}
+                          className="flex size-6 items-center justify-center rounded text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+                          title="Decrease font size"
+                        >
+                          A-
+                        </button>
+                        <span className="w-6 text-center text-xs text-muted-foreground">{fontSize}</span>
+                        <button
+                          onClick={() => setFontSize((s) => Math.min(24, s + 1))}
+                          className="flex size-6 items-center justify-center rounded text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+                          title="Increase font size"
+                        >
+                          A+
+                        </button>
+                      </div>
+                      <div className="h-4 w-px bg-border" />
+                    </>
+                  )}
                   {/* Language selector */}
                   <select
                     value={language}
@@ -791,24 +873,29 @@ export default function CodeEditorPage() {
                     ))}
                   </select>
 
-                  <div className="h-4 w-px bg-border" />
+                  {!isSql && (
+                    <>
+                      <div className="h-4 w-px bg-border" />
+                      {/* Run/Submit buttons for non-SQL */}
+                      <Button
+                        onClick={handleRun}
+                        disabled={running}
+                        size="sm"
+                        variant="default"
+                        className="h-7 gap-1 bg-approved text-xs font-medium text-approved-foreground hover:bg-approved/80"
+                        title="Run code (Ctrl+Enter)"
+                      >
+                        {running ? (
+                          <Loader2 className="size-3.5 animate-spin" />
+                        ) : (
+                          <Play className="size-3.5" />
+                        )}
+                        {running ? "Run..." : "Run"}
+                      </Button>
+                    </>
+                  )}
 
-                  {/* Run/Submit buttons */}
-                  <Button
-                    onClick={handleRun}
-                    disabled={running}
-                    size="sm"
-                    variant="default"
-                    className="h-7 gap-1 bg-approved text-xs font-medium text-approved-foreground hover:bg-approved/80"
-                    title="Run code (Ctrl+Enter)"
-                  >
-                    {running ? (
-                      <Loader2 className="size-3.5 animate-spin" />
-                    ) : (
-                      <Play className="size-3.5" />
-                    )}
-                    {running ? "Run..." : "Run"}
-                  </Button>
+                  {/* Submit button - always visible */}
                   <Button
                     onClick={handleSubmit}
                     disabled={submitting}
@@ -827,75 +914,68 @@ export default function CodeEditorPage() {
                 </div>
               </div>
 
-              {/* ---- Editor Area ---- */}
-              <div className="flex-1 overflow-hidden">
-                {mounted && (
-                  <MonacoEditor
-                    height="100%"
-                    width="100%"
-                    language={language}
-                    value={code}
-                    onChange={handleEditorChange}
-                    theme="vs-dark"
-                    options={{
-                      minimap: { enabled: false },
-                      fontSize: fontSize,
-                      lineNumbers: "on",
-                      scrollBeyondLastLine: false,
-                      automaticLayout: true,
-                      tabSize: 2,
-                      wordWrap: "on",
-                      padding: { top: 12 },
-                      renderLineHighlight: "line",
-                      cursorBlinking: "smooth",
-                      smoothScrolling: true,
-                      folding: true,
-                      bracketPairColorization: { enabled: true },
-                    }}
-                  />
-                )}
-                {!mounted && (
-                  <div className="flex h-full w-full items-center justify-center bg-secondary">
-                    <Loader2 className="size-6 animate-spin text-muted-foreground" />
-                  </div>
-                )}
-              </div>
-
-              {/* ---- Console Toggle ---- */}
-              {!consoleOpen && (
-                <button
-                  onClick={() => setConsoleOpen(true)}
-                  className="flex h-8 shrink-0 items-center gap-2 border-t bg-secondary/60 px-4 text-xs text-muted-foreground hover:text-foreground"
-                  title="Show console"
-                >
-                  <Terminal className="size-3.5" />
-                  Console
-                  <ChevronRight className="size-3.5" />
-                  {runResult && (
-                    <span
-                      className={cn(
-                        "ml-auto rounded px-1.5 py-0.5 text-[10px]",
-                        runResult.exitCode === 0
-                          ? "bg-approved-bg/15 text-approved"
-                          : "bg-rejected-bg/15 text-rejected"
+              {/* ---- SQL Terminal (full height, no split) ---- */}
+              {isSql ? (
+                <SqlTerminal
+                  onSubmit={handleSqlRun}
+                  isRunning={running}
+                  results={sqlResults}
+                  error={runError}
+                  onResultsChange={setSqlResults}
+                  fullScreen={sqlFullScreen}
+                  onToggleFullScreen={() => setSqlFullScreen(!sqlFullScreen)}
+                />
+              ) : (
+                <>
+                  {/* ---- Editor + Console (vertical split panels) ---- */}
+                  <Group orientation="vertical" className="flex-1 min-h-0">
+                    {/* Editor Area Panel */}
+                    <Panel id="editor-area" minSize={20} className="min-h-0">
+                      {mounted ? (
+                        <MonacoEditor
+                          height="100%"
+                          width="100%"
+                          language={language}
+                          value={code}
+                          onChange={handleEditorChange}
+                          theme="vs-dark"
+                          options={{
+                            minimap: { enabled: false },
+                            fontSize: fontSize,
+                            lineNumbers: "on",
+                            scrollBeyondLastLine: false,
+                            automaticLayout: true,
+                            tabSize: 2,
+                            wordWrap: "on",
+                            padding: { top: 12 },
+                            renderLineHighlight: "line",
+                            cursorBlinking: "smooth",
+                            smoothScrolling: true,
+                            folding: true,
+                            bracketPairColorization: { enabled: true },
+                          }}
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center bg-secondary">
+                          <Loader2 className="size-6 animate-spin text-muted-foreground" />
+                        </div>
                       )}
-                    >
-                      Exit: {runResult.exitCode}
-                    </span>
-                  )}
-                </button>
-              )}
+                    </Panel>
 
-              {/* ---- Console Panel ---- */}
-              {consoleOpen && (
-                <div
-                  className={cn(
-                    "flex shrink-0 flex-col border-t bg-secondary",
-                    "h-60"
-                  )}
-                >
-                  {/* Console Tabs */}
-                  <div className="flex h-10 shrink-0 items-center border-b bg-secondary/60">
+                    {/* ---- Draggable Separator ---- */}
+                    {consoleOpen && (
+                      <Separator className="group relative flex h-1.5 shrink-0 items-center justify-center bg-transparent transition-colors hover:bg-info/20 data-[resize-handle-active]:bg-info/30 cursor-row-resize">
+                        <div className="flex w-8 h-0.5 rounded-full bg-border group-hover:bg-info group-data-[resize-handle-active]:bg-info transition-colors" />
+                      </Separator>
+                    )}
+
+                    {/* Console Panel (drag-resizable) */}
+                    {consoleOpen && (
+                      <Panel id="console-panel" defaultSize={100} minSize={50} maxSize={700} className="min-h-0">
+                        <div className="flex flex-col h-full bg-secondary border-t">
+                    <div className="flex items-center h-10 shrink-0 gap-0 border-b bg-muted/30 overflow-x-auto">
+                      {/* Console Tabs */}
+                    {/* Test Cases tab (always shown) */}
                     <button
                       onClick={() => setConsoleTab("testcase")}
                       className={cn(
@@ -905,9 +985,21 @@ export default function CodeEditorPage() {
                           : "border-transparent text-muted-foreground hover:text-foreground"
                       )}
                     >
-                      <Keyboard className="size-3.5" />
-                      Test Case
+                      <FlaskConical className="size-3.5" />
+                      Test Cases
+                      {runResult?.testResults && (
+                        <span className={cn(
+                          "ml-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-bold",
+                          runResult.testResults.every(t => t.passed)
+                            ? "bg-approved-bg/15 text-approved"
+                            : "bg-rejected-bg/15 text-rejected"
+                        )}>
+                          {runResult.testResults.filter(t => t.passed).length}/{runResult.testResults.length}
+                        </span>
+                      )}
                     </button>
+
+                    {/* Run Output tab */}
                     <button
                       onClick={() => setConsoleTab("output")}
                       className={cn(
@@ -929,13 +1021,47 @@ export default function CodeEditorPage() {
                           )}
                         >
                           {runResult?.exitCode === 0
-                            ? "✓"
+                            ? "\u2713"
                             : runResult
-                            ? "✗"
+                            ? "\u2717"
                             : "!"}
                         </span>
                       )}
                     </button>
+
+                    {/* Charts tab (shown when images are available) */}
+                    {runResult?.images && runResult.images.length > 0 && (
+                      <button
+                        onClick={() => setConsoleTab("charts")}
+                        className={cn(
+                          "flex h-full items-center gap-1.5 border-b-2 px-3 text-xs font-medium transition-colors",
+                          consoleTab === "charts"
+                            ? "border-info text-foreground"
+                            : "border-transparent text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        <BarChart className="size-3.5" />
+                        Charts ({runResult.images.length})
+                      </button>
+                    )}
+
+                    {/* Network Lab tab (shown for network programs) */}
+                    {isNetworkProgram && (
+                      <button
+                        onClick={() => setConsoleTab("networklab")}
+                        className={cn(
+                          "flex h-full items-center gap-1.5 border-b-2 px-3 text-xs font-medium transition-colors",
+                          consoleTab === "networklab"
+                            ? "border-info text-foreground"
+                            : "border-transparent text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        <Network className="size-3.5" />
+                        Network Lab
+                      </button>
+                    )}
+
+                    {/* Submission tab */}
                     <button
                       onClick={() => setConsoleTab("submission")}
                       className={cn(
@@ -959,15 +1085,14 @@ export default function CodeEditorPage() {
                           )}
                         >
                           {submission.status === "APPROVED"
-                            ? "✓"
+                            ? "\u2713"
                             : submission.status === "REJECTED"
-                            ? "✗"
+                            ? "\u2717"
                             : "~"}
                         </span>
                       )}
                     </button>
 
-                    {/* Console close button */}
                     <button
                       onClick={() => setConsoleOpen(false)}
                       className="ml-auto mr-2 flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -981,30 +1106,18 @@ export default function CodeEditorPage() {
                   <div className="flex-1 overflow-y-auto p-0">
                     {/* Test Case Tab */}
                     {consoleTab === "testcase" && (
-                      <div className="p-3 h-full">
-                        <label className="mb-1.5 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                          <Keyboard className="size-3.5" />
-                          Runtime Input (stdin)
-                        </label>
-                        <textarea
-                          value={stdin}
-                          onChange={(e) => setStdin(e.target.value)}
-                          placeholder={`Enter input for your program here...\nExample: if your program uses input() or scanf(),\ntype the values here, one per line.`}
-                          rows={5}
-                          className="w-full h-32 rounded border bg-muted/40 px-3 py-2 font-mono text-sm text-foreground outline-none transition-colors focus:border-info placeholder:text-muted-foreground"
-                          spellCheck={false}
+                      <div className="h-full">
+                        <TestCaseResults
+                          results={runResult?.testResults || []}
+                          isRunning={running}
                         />
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          This input is passed as stdin when you run the code.
-                        </p>
                       </div>
                     )}
 
                     {/* Output Tab */}
                     {consoleTab === "output" && (
-                      <div className="h-full">
-                        {/* Exit code badge */}
-                        <div className="flex items-center justify-between border-b px-3 py-1.5">
+                      <div className="flex flex-col h-full">
+                        <div className="flex shrink-0 items-center justify-between border-b px-3 py-1.5">
                           <span className="text-xs text-muted-foreground">Output</span>
                           <div className="flex items-center gap-2">
                             {(runResult || runError) && (
@@ -1026,8 +1139,27 @@ export default function CodeEditorPage() {
                           </div>
                         </div>
 
-                        {/* Output content */}
-                        <div className="p-0 h-full overflow-auto">
+                        {/* Stdin Input Area */}
+                        <div className="shrink-0 border-b px-3 py-2 bg-muted/20">
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-xs font-medium text-muted-foreground">
+                              <Terminal className="size-3 inline mr-1" />
+                              Stdin Input
+                            </label>
+                            <span className="text-[10px] text-muted-foreground">
+                              For programs that use input()
+                            </span>
+                          </div>
+                          <textarea
+                            value={stdin}
+                            onChange={(e) => setStdin(e.target.value)}
+                            placeholder="Enter input for your program here (one value per line)..."
+                            rows={2}
+                            className="w-full rounded border border-border bg-background/50 px-2.5 py-1.5 font-mono text-xs text-foreground outline-none transition-colors focus:border-info focus:ring-1 focus:ring-info/30 placeholder:text-muted-foreground/60"
+                          />
+                        </div>
+
+                        <div className="p-0 flex-1 min-h-0 overflow-auto">
                           {running ? (
                             <div className="flex items-center gap-2 px-3 py-4 text-sm text-muted-foreground">
                               <Loader2 className="size-3.5 animate-spin" />
@@ -1060,6 +1192,29 @@ export default function CodeEditorPage() {
                                   {runResult.stderr}
                                 </pre>
                               )}
+                              {/* Inline chart images in output */}
+                              {runResult.images && runResult.images.length > 0 && (
+                                <div className="border-t px-3 py-3">
+                                  <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                    Generated Charts
+                                  </p>
+                                  <div className="flex flex-wrap gap-3">
+                                    {runResult.images.map((img, i) => (
+                                      <div key={i} className="overflow-hidden rounded-lg border bg-background">
+                                        <img
+                                          src={img.data}
+                                          alt={img.name}
+                                          className="max-w-full h-auto"
+                                          style={{ maxHeight: 300 }}
+                                        />
+                                        <p className="border-t px-2 py-1 text-[10px] text-muted-foreground">
+                                          {img.name}
+                                        </p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           ) : (
                             <div className="flex flex-col items-center justify-center h-full py-8 text-center">
@@ -1073,6 +1228,82 @@ export default function CodeEditorPage() {
                             </div>
                           )}
                         </div>
+                      </div>
+                    )}
+
+                    {/* Charts Tab */}
+                    {consoleTab === "charts" && (
+                      <div className="h-full overflow-auto p-4">
+                        <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+                          <BarChart className="size-4" />
+                          Generated Charts
+                        </h3>
+                        {runResult?.images && runResult.images.length > 0 ? (
+                          <div className="flex flex-col gap-4">
+                            {runResult.images.map((img, i) => (
+                              <div
+                                key={i}
+                                className="overflow-hidden rounded-lg border bg-background"
+                              >
+                                <div className="flex items-center justify-between border-b bg-muted/30 px-3 py-1.5">
+                                  <span className="text-xs font-medium">{img.name}</span>
+                                </div>
+                                <div className="flex items-center justify-center p-4 bg-white/5">
+                                  <img
+                                    src={img.data}
+                                    alt={img.name}
+                                    className="max-w-full h-auto"
+                                    style={{ maxHeight: 400 }}
+                                  />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
+                            <BarChart className="size-10 mb-2" />
+                            <p className="text-sm">No charts generated</p>
+                            <p className="text-xs">Run code that creates matplotlib plots</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Network Lab Tab */}
+                    {consoleTab === "networklab" && (
+                      <div className="h-full overflow-auto">
+                        <NetworkSimulation
+                          topology={networkTopology}
+                          onTopologyChange={setNetworkTopology}
+                          isRunning={running}
+                          onRunCode={async (runCode: string) => {
+                            setCode(runCode)
+                            setRunning(true)
+                            setRunResult(null)
+                            setRunError(null)
+                            setSqlResults(null)
+                            setConsoleTab("output")
+                            setConsoleOpen(true)
+                            try {
+                              const res = await fetch("/api/execute", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ code: runCode, language: "python", stdin: "" }),
+                              })
+                              if (!res.ok) {
+                                const data = await res.json()
+                                throw new Error(data.error || "Execution failed")
+                              }
+                              const data = await res.json()
+                              setRunResult(data)
+                              if (data.sqlResults) setSqlResults(data.sqlResults)
+                            } catch (err: any) {
+                              setRunError(err.message)
+                            } finally {
+                              setRunning(false)
+                            }
+                          }}
+                        />
                       </div>
                     )}
 
@@ -1147,7 +1378,36 @@ export default function CodeEditorPage() {
                     )}
                   </div>
                 </div>
-              )}
+                    </Panel>
+                  )}
+                </Group>
+
+                {/* Console Toggle (when hidden) — outside Group */}
+                {!consoleOpen && (
+                  <button
+                    onClick={() => setConsoleOpen(true)}
+                    className="flex h-8 shrink-0 items-center gap-2 border-t bg-secondary/60 px-4 text-xs text-muted-foreground hover:text-foreground"
+                    title="Show console"
+                  >
+                    <Terminal className="size-3.5" />
+                    Console
+                    <ChevronRight className="size-3.5" />
+                    {runResult && (
+                      <span
+                        className={cn(
+                          "ml-auto rounded px-1.5 py-0.5 text-[10px]",
+                          runResult.exitCode === 0
+                            ? "bg-approved-bg/15 text-approved"
+                            : "bg-rejected-bg/15 text-rejected"
+                        )}
+                      >
+                        Exit: {runResult.exitCode}
+                      </span>
+                    )}
+                  </button>
+                )}
+              </>
+            )}
             </div>
           </Panel>
         </Group>

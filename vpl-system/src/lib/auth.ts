@@ -3,6 +3,7 @@ import CredentialsProvider from "next-auth/providers/credentials"
 import { prisma } from "@/lib/prisma"
 import bcrypt from "bcryptjs"
 import { logActivity } from "@/lib/activity-logger"
+import { SESSION_MAX_AGE, INACTIVITY_TIMEOUT } from "@/lib/session-config"
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -22,16 +23,27 @@ export const authOptions: NextAuthOptions = {
         const isRollNumber = /^\d/.test(credentials.identifier)
 
         if (isRollNumber) {
-          // Find student by roll number
+          // Find student by roll number (case-insensitive: always uppercase)
           const student = await prisma.student.findUnique({
-            where: { rollNumber: credentials.identifier },
-            include: { user: true },
+            where: { rollNumber: credentials.identifier.toUpperCase() },
+            select: {
+              user: {
+                select: {
+                  id: true, name: true, email: true, role: true,
+                  password: true, isOnboarded: true,
+                },
+              },
+            },
           })
           user = student?.user ?? null
         } else {
           // Find by email (admin or teacher)
           user = await prisma.user.findUnique({
             where: { email: credentials.identifier },
+            select: {
+              id: true, name: true, email: true, role: true,
+              password: true, isOnboarded: true,
+            },
           })
         }
 
@@ -49,6 +61,7 @@ export const authOptions: NextAuthOptions = {
           name: user.name,
           email: user.email,
           role: user.role,
+          isOnboarded: user.isOnboarded,
         }
       },
     }),
@@ -70,16 +83,33 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
+        // Sign in — set initial lastActivity timestamp
         token.id = user.id
         token.role = user.role
+        token.isOnboarded = user.isOnboarded
+        token.lastActivity = Date.now()
+        return token
       }
+
+      // Enforce inactivity timeout — invalidate stale sessions
+      if (token.lastActivity && Date.now() - (token.lastActivity as number) > INACTIVITY_TIMEOUT) {
+        // Return empty token to signal session expiration
+        return {} as typeof token
+      }
+
+      // Update lastActivity on every valid request (sliding window)
+      token.lastActivity = Date.now()
+
       return token
     },
     async session({ session, token }) {
-      if (token) {
-        session.user.id = token.id as string
-        session.user.role = token.role as string
+      // If token was invalidated (e.g. inactivity timeout), return null session
+      if (!token?.id) {
+        return null as unknown as typeof session
       }
+      session.user.id = token.id as string
+      session.user.role = token.role as string
+      session.user.isOnboarded = token.isOnboarded as boolean | undefined
       return session
     },
   },
@@ -91,6 +121,7 @@ export const authOptions: NextAuthOptions = {
 
   session: {
     strategy: "jwt",
+    maxAge: SESSION_MAX_AGE,
   },
 
   secret: process.env.NEXTAUTH_SECRET,

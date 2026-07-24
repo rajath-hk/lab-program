@@ -35,7 +35,8 @@ export default function StudentProgramsPage() {
       try {
         const res = await fetch("/api/student/programs")
         if (!res.ok) throw new Error("Failed to fetch programs")
-        setPrograms(await res.json())
+        const data = await res.json()
+        setPrograms(Array.isArray(data) ? data : data.programs || [])
       } catch (err) {
         console.error(err)
       } finally {

@@ -49,7 +49,8 @@ export default function StudentSubmissionsPage() {
       try {
         const res = await fetch("/api/student/submissions")
         if (!res.ok) throw new Error("Failed to fetch submissions")
-        setSubmissions(await res.json())
+        const data = await res.json()
+        setSubmissions(data.submissions)
       } catch (err) {
         console.error(err)
       } finally {

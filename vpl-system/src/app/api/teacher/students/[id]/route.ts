@@ -18,29 +18,17 @@ export async function GET(
   try {
     const student = await prisma.student.findUnique({
       where: { id },
-      include: {
+      select: {
+        id: true,
+        rollNumber: true,
+        semester: true,
+        departmentId: true,
         user: {
           select: {
             id: true,
             name: true,
             email: true,
             createdAt: true,
-          },
-        },
-        department: true,
-        submissions: {
-          orderBy: { createdAt: "desc" },
-          include: {
-            question: {
-              select: {
-                id: true,
-                title: true,
-                orderNumber: true,
-                program: {
-                  select: { id: true, title: true },
-                },
-              },
-            },
           },
         },
       },
@@ -50,10 +38,43 @@ export async function GET(
       return NextResponse.json({ error: "Student not found" }, { status: 404 })
     }
 
+    const { searchParams } = new URL(request.url)
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10))
+    const limit = Math.min(50, Math.max(1, parseInt(searchParams.get("limit") || "20", 10)))
+    const skip = (page - 1) * limit
+
+    const [submissions, totalSubmissions, department, submissionCounts] = await Promise.all([
+      prisma.submission.findMany({
+        where: { studentId: student.id },
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: limit,
+        include: {
+          question: {
+            select: {
+              id: true,
+              title: true,
+              orderNumber: true,
+              program: {
+                select: { id: true, title: true },
+              },
+            },
+          },
+        },
+      }),
+      prisma.submission.count({ where: { studentId: student.id } }),
+      prisma.department.findUnique({ where: { id: student.departmentId } }),
+      prisma.submission.groupBy({
+        by: ["status"],
+        where: { studentId: student.id },
+        _count: true,
+      }),
+    ])
+
     const submissionStats = {
-      pending: student.submissions.filter((s) => s.status === "PENDING").length,
-      approved: student.submissions.filter((s) => s.status === "APPROVED").length,
-      rejected: student.submissions.filter((s) => s.status === "REJECTED").length,
+      pending: submissionCounts.find((s) => s.status === "PENDING")?._count ?? 0,
+      approved: submissionCounts.find((s) => s.status === "APPROVED")?._count ?? 0,
+      rejected: submissionCounts.find((s) => s.status === "REJECTED")?._count ?? 0,
     }
 
     return NextResponse.json({
@@ -62,11 +83,11 @@ export async function GET(
       semester: student.semester,
       name: student.user.name,
       email: student.user.email,
-      department: student.department,
+      department,
       createdAt: student.user.createdAt,
-      totalSubmissions: student.submissions.length,
+      totalSubmissions,
       submissionStats,
-      submissions: student.submissions,
+      submissions,
     })
   } catch (error) {
     console.error("Failed to fetch student:", error)
