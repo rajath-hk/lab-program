@@ -3,6 +3,7 @@ import { NextResponse } from "next/server"
 import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { logActivity } from "@/lib/activity-logger"
+import type { SubmissionStatus } from "@prisma/client"
 
 export async function GET(request: Request) {
   const session = await getServerSession(authOptions)
@@ -96,6 +97,48 @@ export async function POST(request: Request) {
     let submission
     let isUpdate = false
 
+    let initialStatus: SubmissionStatus = "PENDING"
+
+    // ── Auto-approve logic: run test cases if defined on the question ──
+    let autoApprove = false
+    let testResults: { input: string; expectedOutput: string; actualOutput: string; passed: boolean }[] | [] = []
+
+    // Fetch full question including testCases
+    const fullQuestion = await prisma.question.findUnique({
+      where: { id: questionId },
+      select: { testCases: true },
+    })
+
+    if (fullQuestion?.testCases) {
+      try {
+        const parsedTestCases = JSON.parse(fullQuestion.testCases)
+        if (Array.isArray(parsedTestCases) && parsedTestCases.length > 0) {
+          // Call the execute endpoint to run test cases
+          const baseUrl = `${request.headers.get("x-forwarded-proto") || "http"}://${request.headers.get("host")}`
+          const execRes = await fetch(`${baseUrl}/api/execute`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              code,
+              language: language || "plaintext",
+              testCases: parsedTestCases,
+            }),
+          })
+
+          if (execRes.ok) {
+            const execData = await execRes.json()
+            testResults = execData.testResults || []
+            if (testResults.length > 0 && testResults.every((t: any) => t.passed)) {
+              initialStatus = "APPROVED"
+              autoApprove = true
+            }
+          }
+        }
+      } catch {
+        // If test case parsing or execution fails, fall back to PENDING
+      }
+    }
+
     await prisma.$transaction(async (tx) => {
       const existing = await tx.submission.findFirst({
         where: { studentId: student.id, questionId },
@@ -110,9 +153,9 @@ export async function POST(request: Request) {
           data: {
             code,
             language: language || "plaintext",
-            status: "PENDING",
+            status: initialStatus,
             output: output || null,
-            feedback: null,
+            feedback: autoApprove ? "Auto-approved: all test cases passed." : null,
           },
           include: {
             question: {
@@ -131,7 +174,9 @@ export async function POST(request: Request) {
             questionId,
             code,
             language: language || "plaintext",
+            status: initialStatus,
             output: output || null,
+            feedback: autoApprove ? "Auto-approved: all test cases passed." : null,
           },
           include: {
             question: {
@@ -145,11 +190,18 @@ export async function POST(request: Request) {
         })
       }
     })
+            },
+          },
+        })
+      }
+    })
 
     await logActivity(
       session.user.id,
-      "SUBMIT_CODE",
-      `Submitted code for question "${question.title}" (${language || "plaintext"})`
+      autoApprove ? "SUBMIT_CODE_AUTO_APPROVED" : "SUBMIT_CODE",
+      autoApprove
+        ? `Submitted code for question "${question.title}" — auto-approved (${testResults?.length} test cases passed)`
+        : `Submitted code for question "${question.title}" (${language || "plaintext"})${testResults.length > 0 ? ` — ${testResults.filter((t) => t.passed).length}/${testResults.length} tests passed, pending review` : ""}`
     )
 
     return NextResponse.json(submission, { status: isUpdate ? 200 : 201 })

@@ -11,18 +11,16 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url)
-  const monthParam = searchParams.get("month")
-  const yearParam = searchParams.get("year")
+  const fromDate = searchParams.get("from")
+  const toDate = searchParams.get("to")
   const departmentId = searchParams.get("departmentId")
   const semester = searchParams.get("semester")
   const search = searchParams.get("search")
+  const studentId = searchParams.get("studentId")
 
-  const now = new Date()
-  const month = monthParam ? parseInt(monthParam, 10) : now.getMonth() + 1
-  const year = yearParam ? parseInt(yearParam, 10) : now.getFullYear()
-
-  if (month < 1 || month > 12) {
-    return NextResponse.json({ error: "Invalid month" }, { status: 400 })
+  if (!fromDate) {
+    return NextResponse.json({ error: "From date is required" }, { status: 400 })
+  }
   }
 
   try {
@@ -37,14 +35,23 @@ export async function GET(request: Request) {
         { rollNumber: { contains: search, mode: "insensitive" } },
       ]
     }
+    if (studentId) studentWhere.id = studentId
 
     const students = await prisma.student.findMany({
       where: studentWhere,
       orderBy: [{ semester: "asc" }, { rollNumber: "asc" }],
-      take: 200,
       include: {
         user: {
-          select: { id: true, name: true, email: true },
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+        department: {
+          select: { id: true, name: true, code: true },
+        },
+      },
         },
         department: {
           select: { id: true, name: true, code: true },
@@ -54,21 +61,23 @@ export async function GET(request: Request) {
 
     if (students.length === 0) {
       return NextResponse.json({
-        year,
-        month,
-        days: {},
+        attendance: [],
         departments: [],
+        summary: { totalStudents: 0, present: 0, absent: 0, totalDays: 0 },
       })
     }
 
     const userIds = students.map((s) => s.user.id)
 
-    // Calculate month date range
-    const startDate = new Date(year, month - 1, 1)
+    // Set the date range
+    const startDate = new Date(fromDate)
     startDate.setHours(0, 0, 0, 0)
-    const endDate = new Date(year, month, 0, 23, 59, 59, 999) // Last day of month
+    const endDate = toDate ? new Date(toDate + "T23:59:59.999Z") : new Date(startDate)
+    if (!toDate) {
+      endDate.setHours(23, 59, 59, 999)
+    }
 
-    // Fetch LOGIN and LOGOUT activities for these students in this month
+    // Fetch LOGIN/LOGOUT activities for these students
     const activities = await prisma.activityLog.findMany({
       where: {
         userId: { in: userIds },
@@ -79,100 +88,131 @@ export async function GET(request: Request) {
         },
       },
       orderBy: { createdAt: "asc" },
-      take: 20000,
     })
 
-    // Build a map of userId -> student info for quick lookup
-    const studentMap = new Map(students.map((s) => [s.user.id, s]))
-
-    // Group activities by date
-    const daysMap: Record<string, {
-      count: number
-      students: Array<{
-        userId: string
-        studentId: string
-        name: string
-        email: string
-        rollNumber: string
-        department: { id: string; name: string; code: string }
-        semester: number
-        loginTime: string
-        logoutTime: string | null
-      }>
+    // Group activities by (studentId, date)
+    const grouped: Record<string, {
+      studentId: string
+      date: string
+      logins: { time: string; id: string }[]
+      logouts: { time: string; id: string }[]
     }> = {}
 
-    // First pass: group all activities by (userId, date)
-    const groupedActivities: Record<string, {
-      logins: string[]
-      logouts: string[]
+    for (const activity of activities) {
     }> = {}
 
     for (const activity of activities) {
       const dateKey = activity.createdAt.toISOString().split("T")[0]
       const groupKey = `${activity.userId}|${dateKey}`
-      if (!groupedActivities[groupKey]) {
-        groupedActivities[groupKey] = { logins: [], logouts: [] }
+      if (!grouped[groupKey]) {
+        grouped[groupKey] = {
+          studentId: activity.userId,
+          date: dateKey,
+          logins: [],
+          logouts: [],
+        }
       }
       if (activity.action === "LOGIN") {
-        groupedActivities[groupKey].logins.push(activity.createdAt.toISOString())
+        grouped[groupKey].logins.push({
+          id: activity.id,
+          time: activity.createdAt.toISOString(),
+        })
       } else if (activity.action === "LOGOUT") {
-        groupedActivities[groupKey].logouts.push(activity.createdAt.toISOString())
+        grouped[groupKey].logouts.push({
+          id: activity.id,
+          time: activity.createdAt.toISOString(),
+        })
       }
     }
 
-    // Second pass: build day entries from grouped data
-    for (const [groupKey, group] of Object.entries(groupedActivities)) {
-      const [userId, dateKey] = groupKey.split("|")
-      if (!daysMap[dateKey]) {
-        daysMap[dateKey] = { count: 0, students: [] }
-      }
+    // Build a map of userId -> student info
+    const studentMap = new Map(students.map((s) => [s.user.id, s]))
 
-      const student = studentMap.get(userId)
-      if (student) {
-        // Use first login and last logout
-        const firstLogin = group.logins[0] || null
-        const lastLogout = group.logouts[group.logouts.length - 1] || null
+    // Generate date range
+    const dates: string[] = []
+    const current = new Date(startDate)
+    while (current <= endDate) {
+      dates.push(current.toISOString().split("T")[0])
+      current.setDate(current.getDate() + 1)
+    }
 
-        // In case there was a logout before the first login (e.g., session from prev day),
-        // use the login that has a corresponding logout cycle
-        let loginTime = firstLogin
-        let logoutTime = lastLogout
+    // Build attendance records
+    const attendance: Array<{
+      userId: string
+      studentId: string
+      name: string
+      email: string
+      rollNumber: string
+      department: { id: string; name: string; code: string }
+      semester: number
+      date: string
+      firstLogin: string | null
+      lastLogout: string | null
+      duration: number | null // in minutes
+      status: "present" | "absent"
+      loginCount: number
+    }> = []
 
-        // If first login is after the last logout, try the last login
-        if (loginTime && logoutTime && new Date(loginTime) > new Date(logoutTime)) {
-          loginTime = group.logins[group.logins.length - 1] || loginTime
+    for (const student of students) {
+      for (const dateStr of dates) {
+        const groupKey = `${student.user.id}|${dateStr}`
+        const group = grouped[groupKey]
+
+        const firstLogin = group?.logins[0]?.time || null
+        const lastLogout = group?.logouts[group.logouts.length - 1]?.time || null
+
+        let duration: number | null = null
+        if (firstLogin && lastLogout) {
+          duration = Math.round(
+            (new Date(lastLogout).getTime() - new Date(firstLogin).getTime()) / 60000
+          )
+        } else if (firstLogin && !lastLogout) {
+          // Still logged in, calculate until now or end of day
+          const endOfDay = new Date(dateStr + "T23:59:59.999Z")
+          duration = Math.round(
+            (endOfDay.getTime() - new Date(firstLogin).getTime()) / 60000
+          )
         }
 
-        // If no logout found after login, set logout to null
-        if (loginTime && logoutTime && new Date(logoutTime) < new Date(loginTime)) {
-          logoutTime = null
-        }
-
-        daysMap[dateKey].students.push({
-          userId,
+        attendance.push({
+          userId: student.user.id,
           studentId: student.id,
           name: student.user.name,
           email: student.user.email,
           rollNumber: student.rollNumber,
           department: student.department,
           semester: student.semester,
-          loginTime: loginTime || group.logins[0] || "",
-          logoutTime,
+          date: dateStr,
+          firstLogin,
+          lastLogout,
+          duration,
+          status: group ? "present" : "absent",
+          loginCount: group?.logins.length || 0,
         })
-        daysMap[dateKey].count++
       }
     }
 
-    // Get departments for filter dropdown
+    // Get departments for filter
     const departments = await prisma.department.findMany({
       orderBy: { name: "asc" },
     })
 
+    // Summary stats
+    const totalDays = dates.length
+    const totalStudents = students.length
+    const totalRecords = attendance.length
+    const presentRecords = attendance.filter((a) => a.status === "present").length
+
     return NextResponse.json({
-      year,
-      month,
-      days: daysMap,
+      attendance,
       departments,
+      summary: {
+        totalStudents,
+        totalDays,
+        totalRecords,
+        present: presentRecords,
+        absent: totalRecords - presentRecords,
+      },
     })
   } catch (error) {
     console.error("Failed to fetch attendance:", error)

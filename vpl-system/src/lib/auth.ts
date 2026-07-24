@@ -81,7 +81,7 @@ export const authOptions: NextAuthOptions = {
   },
 
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger }) {
       if (user) {
         // Sign in — set initial lastActivity timestamp
         token.id = user.id

@@ -12,6 +12,27 @@ import { INACTIVITY_TIMEOUT } from "@/lib/session-config"
 /** 1 minute in milliseconds. */
 const MINUTE = 60_000
 
+    // Check inactivity timeout for authenticated users (skip for /login)
+    if (token && token.lastActivity && pathname !== "/login") {
+      const elapsed = Date.now() - Number(token.lastActivity)
+      if (elapsed > INACTIVITY_TIMEOUT) {
+        return NextResponse.redirect(new URL("/login", req.url))
+      }
+    }
+
+    // Redirect authenticated users away from /login to their dashboard
+    if (pathname === "/login") {
+      if (token) {
+        const role = token.role as string
+        // Students who need onboarding go to /onboarding instead of /student
+        if (role === "STUDENT" && token.isOnboarded === false) {
+          return NextResponse.redirect(new URL("/onboarding", req.url))
+        }
+        return NextResponse.redirect(new URL(getRoleDashboard(role), req.url))
+      }
+      return NextResponse.next()
+    }
+
 const RATE_LIMITS = {
   /** Code execution endpoint — expensive, strict limit. */
   execute: { windowMs: MINUTE, max: 10 },
@@ -22,6 +43,49 @@ const RATE_LIMITS = {
   /** Default for all other API routes. */
   default: { windowMs: MINUTE, max: 60 },
 } as const
+
+/** IPs that bypass rate limiting in development. */
+const DEV_BYPASS_IPS = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"])
+
+    // Allow un-onboarded students to access onboarding page
+    if (pathname === "/onboarding") {
+      if (role !== "STUDENT") {
+        return NextResponse.redirect(new URL("/login", req.url))
+      }
+      // If already onboarded, redirect to student dashboard
+      if (token.isOnboarded === true) {
+        return NextResponse.redirect(new URL("/student", req.url))
+      }
+      return NextResponse.next()
+    }
+
+    // Prevent wrong role from accessing wrong dashboard
+    if (pathname.startsWith("/admin") && role !== "ADMIN") {
+      return NextResponse.redirect(new URL("/login", req.url))
+    }
+    if (pathname.startsWith("/teacher") && role !== "TEACHER") {
+      return NextResponse.redirect(new URL("/login", req.url))
+    }
+    if (pathname.startsWith("/student") && role !== "STUDENT") {
+      return NextResponse.redirect(new URL("/login", req.url))
+    }
+
+    // Un-onboarded students can only access /onboarding
+    if (
+      role === "STUDENT" &&
+      token.isOnboarded === false &&
+      pathname !== "/onboarding"
+    ) {
+      return NextResponse.redirect(new URL("/onboarding", req.url))
+    }
+
+    return NextResponse.next()
+  },
+  {
+    callbacks: {
+      authorized: () => true, // let middleware function handle it
+    },
+  }
 
 /** IPs that bypass rate limiting in development. */
 const DEV_BYPASS_IPS = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"])
@@ -39,6 +103,16 @@ function getClientIP(req: NextRequest): string {
   const xff = req.headers.get("x-forwarded-for")
   if (xff) {
     return xff.split(",")[0].trim()
+  }
+
+  const xRealIp = req.headers.get("x-real-ip")
+  if (xRealIp) return xRealIp
+
+  // Fallback (may be undefined in some edge runtime contexts)
+  // @ts-ignore
+  return (req.ip || "") as string
+}
+
   }
 
   const xRealIp = req.headers.get("x-real-ip")

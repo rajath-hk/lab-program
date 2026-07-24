@@ -185,7 +185,7 @@ function executeSql(code: string): { results: SqlResult[] } {
     .map((s) => s.trim())
     .filter((s) => s.length > 0)
 
-  for (let rawStmt of statements) {
+  for (const rawStmt of statements) {
     try {
       const upperStmt = rawStmt.toUpperCase().trimStart()
 
@@ -519,6 +519,7 @@ export async function POST(request: Request) {
     )
   }
   activeExecutions.set(userId, true)
+
 
   let tmpDir: string | null = null
 

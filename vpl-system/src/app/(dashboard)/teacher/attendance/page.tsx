@@ -1,28 +1,77 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useMemo, useRef } from "react"
 import {
-  ChevronLeft,
-  ChevronRight,
+  Search,
+  Filter,
   Loader2,
+  History,
   UserIcon,
   CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  RotateCcw,
+  Clock,
   LogIn,
   LogOut,
-  Search,
-  X,
+  Users,
+  FileText,
+  FileSpreadsheet,
+  CheckCircle2,
+  XCircle,
   AlertCircle,
-  RotateCcw,
+  Radio,
+  Wifi,
+  RefreshCw,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Card, CardContent } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 
 interface Department {
   id: string
   name: string
   code: string
+}
+
+interface AttendanceRecord {
+  userId: string
+  studentId: string
+  name: string
+  email: string
+  rollNumber: string
+  department: { id: string; name: string; code: string }
+  semester: number
+  date: string
+  firstLogin: string | null
+  lastLogout: string | null
+  duration: number | null
+  status: "present" | "absent"
+  loginCount: number
+}
+
+interface AttendanceResponse {
+  attendance: AttendanceRecord[]
+  departments: Department[]
+  summary: {
+    totalStudents: number
+    totalDays: number
+    totalRecords: number
+    present: number
+    absent: number
+  }
+}
+
+interface LiveSession {
+  userId: string
+  studentId: string
+  name: string
+  rollNumber: string
+  department: { id: string; name: string; code: string }
+  semester: number
+  loginTime: string
+  durationMinutes: number
 }
 
 interface DayStudent {
@@ -34,34 +83,51 @@ interface DayStudent {
   department: { id: string; name: string; code: string }
   semester: number
   loginTime: string
-  logoutTime: string | null
-}
-
-interface DayData {
-  count: number
-  students: DayStudent[]
-}
-
-interface CalendarResponse {
-  year: number
-  month: number
-  days: Record<string, DayData>
-  departments: Department[]
-}
-
-const MONTH_NAMES = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
-]
-
-const DAY_HEADERS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
-
-function formatTime(dateStr: string) {
+function formatTime(dateStr: string | null) {
+  if (!dateStr) return "—"
   const d = new Date(dateStr)
   return d.toLocaleTimeString("en-US", {
     hour: "2-digit",
     minute: "2-digit",
+    second: "2-digit",
     hour12: true,
+  })
+}
+  const d = new Date(dateStr)
+  return d.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  })
+}
+
+function formatDuration(minutes: number | null) {
+  if (minutes === null) return "—"
+  const hrs = Math.floor(minutes / 60)
+  const mins = minutes % 60
+  if (hrs > 0) return `${hrs}h ${mins}m`
+  return `${mins}m`
+}
+
+function formatDurationLive(loginTime: string): string {
+  const diff = Date.now() - new Date(loginTime).getTime()
+  const totalMinutes = Math.floor(diff / 60000)
+  const hrs = Math.floor(totalMinutes / 60)
+  const mins = totalMinutes % 60
+  const secs = Math.floor((diff % 60000) / 1000)
+  if (hrs > 0) return `${hrs}h ${mins}m ${secs}s`
+  if (mins > 0) return `${mins}m ${secs}s`
+  return `${secs}s`
+}
+
+function formatDate(dateStr: string) {
+  const d = new Date(dateStr + "T00:00:00")
+  return d.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
   })
 }
 
@@ -74,41 +140,72 @@ function formatFullDate(dateStr: string) {
     year: "numeric",
   })
 }
-
-function getDaysInMonth(year: number, month: number) {
-  return new Date(year, month, 0).getDate()
-}
-
-function getFirstDayOfMonth(year: number, month: number) {
-  return new Date(year, month - 1, 1).getDay()
+    day: "numeric",
+    year: "numeric",
+  })
 }
 
 export default function TeacherAttendancePage() {
-  const now = new Date()
-  const [currentYear, setCurrentYear] = useState(now.getFullYear())
-  const [currentMonth, setCurrentMonth] = useState(now.getMonth() + 1)
-  const [data, setData] = useState<CalendarResponse | null>(null)
+  const [data, setData] = useState<AttendanceResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null)
 
   // Filters
+  const [fromDate, setFromDate] = useState(() => {
+    const d = new Date()
+    d.setDate(d.getDate() - 7)
+    return d.toISOString().split("T")[0]
+  })
+  const [toDate, setToDate] = useState(() => new Date().toISOString().split("T")[0])
   const [departmentId, setDepartmentId] = useState("")
   const [semester, setSemester] = useState("")
   const [search, setSearch] = useState("")
-  const [showFilters, setShowFilters] = useState(false)
+  const [page, setPage] = useState(1)
+  const [showFilters, setShowFilters] = useState(true)
+  const [viewMode, setViewMode] = useState<"table" | "cards" | "live">("table")
 
-  // Day click modal
-  const [selectedDay, setSelectedDay] = useState<string | null>(null)
-  const [selectedStudents, setSelectedStudents] = useState<DayStudent[]>([])
+  // Live session state
+  const [liveData, setLiveData] = useState<LiveResponse | null>(null)
+  const [liveLoading, setLiveLoading] = useState(false)
+  const [liveError, setLiveError] = useState<string | null>(null)
+  const liveIntervalRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Triggers re-renders so formatDurationLive() picks up Date.now()
+  const [, setTick] = useState(0)
+
+  const recordsPerPage = 30
 
   const fetchAttendance = useCallback(async () => {
+    if (!fromDate) return
     setLoading(true)
     setError(null)
 
     try {
       const params = new URLSearchParams()
-      params.set("month", String(currentMonth))
-      params.set("year", String(currentYear))
+      params.set("from", fromDate)
+      if (toDate) params.set("to", toDate)
+      if (departmentId) params.set("departmentId", departmentId)
+      if (semester) params.set("semester", semester)
+      if (search) params.set("search", search)
+
+      const res = await fetch(`/api/teacher/attendance?${params.toString()}`)
+      if (!res.ok) throw new Error("Failed to load attendance")
+      setData(await res.json())
+    } catch (err) {
+      setError("Failed to load attendance")
+      console.error(err)
+    } finally {
+      setLoading(false)
+    }
+  }, [fromDate, toDate, departmentId, semester, search])
+    setLoading(true)
+    setError(null)
+
+    try {
+      const params = new URLSearchParams()
+      params.set("from", fromDate)
+      if (toDate) params.set("to", toDate)
       if (departmentId) params.set("departmentId", departmentId)
       if (semester) params.set("semester", semester)
       if (search) params.set("search", search)
@@ -122,40 +219,83 @@ export default function TeacherAttendancePage() {
     } finally {
       setLoading(false)
     }
-  }, [currentMonth, currentYear, departmentId, semester, search])
+  }, [fromDate, toDate, departmentId, semester, search])
 
   useEffect(() => {
     fetchAttendance()
   }, [fetchAttendance])
 
-  function goToPrevMonth() {
-    if (currentMonth === 1) {
-      setCurrentMonth(12)
-      setCurrentYear((y) => y - 1)
-    } else {
-      setCurrentMonth((m) => m - 1)
+  // ===== LIVE SESSION POLLING =====
+
+  const fetchLiveSessions = useCallback(async () => {
+    setLiveLoading(true)
+    setLiveError(null)
+
+    try {
+      const params = new URLSearchParams()
+      if (departmentId) params.set("departmentId", departmentId)
+      if (semester) params.set("semester", semester)
+      if (search) params.set("search", search)
+
+      const res = await fetch(`/api/teacher/attendance/live?${params}`)
+      if (!res.ok) throw new Error("Failed to fetch live sessions")
+      setLiveData(await res.json())
+    } catch (err) {
+      setLiveError("Failed to load live sessions")
+      console.error(err)
+    } finally {
+      setLiveLoading(false)
     }
+  }, [departmentId, semester, search])
+
+  // Start/stop polling when view mode changes
+  useEffect(() => {
+    if (viewMode === "live") {
+      fetchLiveSessions()
+      liveIntervalRef.current = setInterval(fetchLiveSessions, 10000)
+      // Client-side tick every 30s to refresh duration display
+      const tickInterval = setInterval(() => setTick((t) => t + 1), 10000)
+      return () => {
+        if (liveIntervalRef.current) clearInterval(liveIntervalRef.current)
+        clearInterval(tickInterval)
+      }
+    } else {
+      if (liveIntervalRef.current) {
+        clearInterval(liveIntervalRef.current)
+        liveIntervalRef.current = null
+      }
+    }
+  }, [viewMode, fetchLiveSessions])
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (liveIntervalRef.current) clearInterval(liveIntervalRef.current)
+    }
+  }, [])
+
+  function handleReset() {
+    const d = new Date()
+    d.setDate(d.getDate() - 7)
+    setFromDate(d.toISOString().split("T")[0])
+    setToDate(new Date().toISOString().split("T")[0])
+    setDepartmentId("")
+    setSemester("")
+    setSearch("")
+    setPage(1)
+  }
+
+  function goToPrevMonth() {
+    // kept for potential calendar use
   }
 
   function goToNextMonth() {
-    if (currentMonth === 12) {
-      setCurrentMonth(1)
-      setCurrentYear((y) => y + 1)
-    } else {
-      setCurrentMonth((m) => m + 1)
-    }
+    // kept for potential calendar use
   }
 
   function goToToday() {
-    const today = new Date()
-    setCurrentMonth(today.getMonth() + 1)
-    setCurrentYear(today.getFullYear())
+    // kept for potential calendar use
   }
-
-  function handleDayClick(dateStr: string) {
-    if (!data?.days[dateStr]) return
-    setSelectedDay(dateStr)
-    setSelectedStudents(data.days[dateStr].students)
   }
 
   function hasActiveFilters() {
@@ -168,38 +308,46 @@ export default function TeacherAttendancePage() {
     setSearch("")
   }
 
-  // ---- Build calendar grid ----
-  const daysInMonth = getDaysInMonth(currentYear, currentMonth)
-  const firstDay = getFirstDayOfMonth(currentYear, currentMonth)
-  const todayStr = new Date().toISOString().split("T")[0]
+  // Paginate attendance records
+  const paginatedRecords = useMemo(() => {
+    if (!data?.attendance) return []
+    const start = (page - 1) * recordsPerPage
+    return data.attendance.slice(start, start + recordsPerPage)
+  }, [data?.attendance, page])
 
-  const calendarDays: Array<{ day: number; dateStr: string; isToday: boolean; data?: DayData }> = []
-  for (let d = 1; d <= daysInMonth; d++) {
-    const monthStr = String(currentMonth).padStart(2, "0")
-    const dayStr = String(d).padStart(2, "0")
-    const dateStr = `${currentYear}-${monthStr}-${dayStr}`
-    calendarDays.push({
-      day: d,
-      dateStr,
-      isToday: dateStr === todayStr,
-      data: data?.days[dateStr],
-    })
-  }
+  const totalPages = useMemo(() => {
+    if (!data?.attendance) return 1
+    return Math.ceil(data.attendance.length / recordsPerPage)
+  }, [data?.attendance])
 
-  // Summary
-  const totalDaysWithActivity = data ? Object.keys(data.days).length : 0
-  const totalLogins = data
-    ? Object.values(data.days).reduce((sum, d) => sum + d.count, 0)
-    : 0
-
+  const groupedByStudent = useMemo(() => {
+    if (!data?.attendance) return []
+    const grouped = new Map<string, AttendanceRecord[]>()
+    for (const record of data.attendance) {
+      const existing = grouped.get(record.studentId) || []
+      existing.push(record)
+      grouped.set(record.studentId, existing)
+    }
+    return Array.from(grouped.entries()).map(([studentId, records]) => ({
+      studentId,
+      name: records[0].name,
+      rollNumber: records[0].rollNumber,
+      email: records[0].email,
+      department: records[0].department,
+      semester: records[0].semester,
+      records: records.sort((a, b) => a.date.localeCompare(b.date)),
+      presentDays: records.filter((r) => r.status === "present").length,
+      totalDays: records.length,
+    }))
+  }, [data?.attendance])
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Attendance Calendar</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Attendance</h1>
           <p className="mt-1 text-muted-foreground">
-            View which students logged in on each day
+            Track student login/logout activity and generate attendance reports
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -208,11 +356,42 @@ export default function TeacherAttendancePage() {
             size="sm"
             onClick={() => setShowFilters(!showFilters)}
           >
-            <Search className="size-4" />
+<Filter className="size-4" />
             Filters
             {hasActiveFilters() && (
               <span className="ml-1.5 flex size-4 items-center justify-center rounded-full bg-primary text-[10px] font-medium text-primary-foreground">
                 !
+              </span>
+            )}
+          </Button>
+          <Button
+<Button
+            variant={viewMode === "live" ? "default" : "outline"}
+            size="sm"
+            onClick={() => {
+              setViewMode(viewMode === "live" ? "table" : "live")
+            }}
+            className={cn(
+              viewMode === "live" && "bg-emerald-600 hover:bg-emerald-700 text-white"
+            )}
+          >
+            <span className={cn(
+              "relative flex size-2 mr-1.5",
+              viewMode === "live" && "animate-pulse"
+            )}>
+              <span className={cn(
+                "absolute inline-flex size-full rounded-full opacity-75",
+                viewMode === "live" ? "bg-emerald-300" : "bg-muted-foreground"
+              )} />
+              <span className={cn(
+                "relative inline-flex size-2 rounded-full",
+                viewMode === "live" ? "bg-emerald-400" : "bg-muted-foreground/50"
+              )} />
+            </span>
+            Live
+            {liveData && viewMode !== "live" && liveData.totalActive > 0 && (
+              <span className="ml-1 inline-flex items-center justify-center rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-300">
+                {liveData.totalActive}
               </span>
             )}
           </Button>
@@ -224,74 +403,86 @@ export default function TeacherAttendancePage() {
             <RotateCcw className="size-3.5" />
             Today
           </Button>
+          </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={fetchAttendance}
             disabled={loading}
           >
-            <RotateCcw className={cn("size-3.5", loading && "animate-spin")} />
+<RotateCcw className={cn("size-4", loading && "animate-spin")} />
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExportExcel}
+            disabled={exporting === "excel" || !data?.attendance.length}
+          >
+            {exporting === "excel" ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <FileSpreadsheet className="size-4" />
+            )}
+            Excel
+          </Button>
+          <Button
+            size="sm"
+            onClick={handleExportPDF}
+            disabled={exporting === "pdf" || !data?.attendance.length}
+          >
+            {exporting === "pdf" ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <FileText className="size-4" />
+            )}
+            PDF
           </Button>
         </div>
       </div>
-
-      {/* Summary cards */}
-      {data && !loading && (
-        <div className="grid gap-3 sm:grid-cols-3">
-          <Card>
-            <CardContent className="flex items-center gap-3 p-4">
-              <div className="rounded-lg bg-blue-500/10 p-2 text-blue-600 ring-1 ring-blue-500/20">
-                <CalendarDays className="size-5" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold tabular-nums">{totalDaysWithActivity}</p>
-                <p className="text-xs text-muted-foreground">
-                  Days with activity in {MONTH_NAMES[currentMonth - 1]}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="flex items-center gap-3 p-4">
-              <div className="rounded-lg bg-emerald-500/10 p-2 text-emerald-600 ring-1 ring-emerald-500/20">
-                <LogIn className="size-5" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold tabular-nums">{totalLogins}</p>
-                <p className="text-xs text-muted-foreground">Total student logins</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="flex items-center gap-3 p-4">
-              <div className="rounded-lg bg-purple-500/10 p-2 text-purple-600 ring-1 ring-purple-500/20">
-                <UserIcon className="size-5" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold tabular-nums">
-                  {daysInMonth}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Total days in {MONTH_NAMES[currentMonth - 1]}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
 
       {/* Filters */}
       {showFilters && (
         <Card>
           <CardContent className="p-4">
-            <div className="grid gap-4 sm:grid-cols-4">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                  From Date *
+                </label>
+                <input
+                  type="date"
+                  value={fromDate}
+                  onChange={(e) => {
+                    setFromDate(e.target.value)
+                    setPage(1)
+                  }}
+                  className="h-9 w-full rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                  To Date
+                </label>
+                <input
+                  type="date"
+                  value={toDate}
+                  onChange={(e) => {
+                    setToDate(e.target.value)
+                    setPage(1)
+                  }}
+                  className="h-9 w-full rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                />
+              </div>
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
                   Department
                 </label>
                 <select
                   value={departmentId}
-                  onChange={(e) => setDepartmentId(e.target.value)}
+                  onChange={(e) => {
+                    setDepartmentId(e.target.value)
+                    setPage(1)
+                  }}
                   className="h-9 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
                 >
                   <option value="">All Departments</option>
@@ -308,7 +499,10 @@ export default function TeacherAttendancePage() {
                 </label>
                 <select
                   value={semester}
-                  onChange={(e) => setSemester(e.target.value)}
+                  onChange={(e) => {
+                    setSemester(e.target.value)
+                    setPage(1)
+                  }}
                   className="h-9 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
                 >
                   <option value="">All Semesters</option>
@@ -328,45 +522,126 @@ export default function TeacherAttendancePage() {
                   <Input
                     placeholder="Name, roll, email..."
                     value={search}
-                    onChange={(e) => setSearch(e.target.value)}
+                    onChange={(e) => {
+                      setSearch(e.target.value)
+                      setPage(1)
+                    }}
                     className="pl-8 text-sm"
                   />
                 </div>
               </div>
-              <div className="flex items-end">
-                {hasActiveFilters() && (
-                  <Button variant="ghost" size="sm" onClick={handleResetFilters}>
-                    <RotateCcw className="size-3.5" />
-                    Clear
-                  </Button>
-                )}
-              </div>
             </div>
+            {hasActiveFilters() && (
+              <div className="mt-3 flex items-center justify-end">
+                <Button variant="ghost" size="sm" onClick={handleReset}>
+                  <RotateCcw className="size-3.5" />
+                  Clear filters
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
 
-      {/* Month Navigation */}
-      <div className="flex items-center justify-between">
-        <Button variant="ghost" size="sm" onClick={goToPrevMonth}>
-          <ChevronLeft className="size-4" />
-        </Button>
-        <h2 className="text-lg font-semibold">
-          {MONTH_NAMES[currentMonth - 1]} {currentYear}
-        </h2>
-        <Button variant="ghost" size="sm" onClick={goToNextMonth}>
-          <ChevronRight className="size-4" />
-        </Button>
-      </div>
+      {/* Summary Cards */}
+      {data && !loading && viewMode !== "live" && (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Card>
+            <CardContent className="flex items-center gap-3 p-4">
+              <div className="rounded-lg bg-blue-500/10 p-2 text-blue-600 ring-1 ring-blue-500/20">
+                <Users className="size-5" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold tabular-nums">{data.summary.totalStudents}</p>
+                <p className="text-xs text-muted-foreground">Students Tracked</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="flex items-center gap-3 p-4">
+              <div className="rounded-lg bg-purple-500/10 p-2 text-purple-600 ring-1 ring-purple-500/20">
+                <CalendarDays className="size-5" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold tabular-nums">{data.summary.totalDays}</p>
+                <p className="text-xs text-muted-foreground">Days in Range</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="flex items-center gap-3 p-4">
+              <div className="rounded-lg bg-emerald-500/10 p-2 text-emerald-600 ring-1 ring-emerald-500/20">
+                <CheckCircle2 className="size-5" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold tabular-nums text-emerald-600">
+                  {data.summary.present}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Present Records ({(data.summary.totalRecords > 0
+                    ? ((data.summary.present / data.summary.totalRecords) * 100).toFixed(1)
+                    : 0)}%)
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="flex items-center gap-3 p-4">
+              <div className="rounded-lg bg-red-500/10 p-2 text-red-600 ring-1 ring-red-500/20">
+                <XCircle className="size-5" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold tabular-nums text-red-600">{data.summary.absent}</p>
+                <p className="text-xs text-muted-foreground">
+                  Absent Records ({(data.summary.totalRecords > 0
+                    ? ((data.summary.absent / data.summary.totalRecords) * 100).toFixed(1)
+                    : 0)}%)
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
-      {/* Loading */}
+      {/* View toggle */}
+      {data && data.attendance.length > 0 && !loading && viewMode !== "live" && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            Showing {data.attendance.length} record{data.attendance.length !== 1 ? "s" : ""}
+          </p>
+          <div className="flex items-center gap-1 rounded-lg border p-0.5">
+            <button
+              onClick={() => setViewMode("table")}
+              className={cn(
+                "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                viewMode === "table"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Table
+            </button>
+            <button
+              onClick={() => setViewMode("cards")}
+              className={cn(
+                "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                viewMode === "cards"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              By Student
+            </button>
+          </div>
+        </div>
+      )}
       {loading && (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="size-8 animate-spin text-muted-foreground" />
         </div>
       )}
 
-      {/* Error */}
+      {/* Error state */}
       {error && !loading && (
         <div className="flex items-center justify-center py-20">
           <div className="text-center">
@@ -379,168 +654,405 @@ export default function TeacherAttendancePage() {
         </div>
       )}
 
-      {/* Calendar Grid */}
-      {!loading && (
-        <Card className="overflow-hidden">
+      {/* ===== TABLE VIEW ===== */}
+      {!loading && data && data.attendance.length > 0 && viewMode === "table" && (
+        <Card>
           <CardContent className="p-0">
-            {/* Day headers */}
-            <div className="grid grid-cols-7 border-b">
-              {DAY_HEADERS.map((header) => (
-                <div
-                  key={header}
-                  className="px-2 py-2.5 text-center text-xs font-medium uppercase tracking-wider text-muted-foreground bg-muted/30"
-                >
-                  {header}
-                </div>
-              ))}
-            </div>
-
-            {/* Calendar days */}
-            <div className="grid grid-cols-7">
-              {/* Empty cells before first day */}
-              {Array.from({ length: firstDay }).map((_, i) => (
-                <div key={`empty-${i}`} className="min-h-[80px] border-b border-r bg-muted/10" />
-              ))}
-
-              {/* Actual days */}
-              {calendarDays.map(({ day, dateStr, isToday, data: dayData }) => (
-                <div
-                  key={dateStr}
-                  className={cn(
-                    "relative min-h-[80px] border-b border-r p-1.5 transition-colors",
-                    dayData
-                      ? "cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950/30"
-                      : "bg-muted/5",
-                    isToday && "ring-2 ring-inset ring-primary/30"
-                  )}
-                  onClick={() => dayData && handleDayClick(dateStr)}
-                  title={
-                    dayData
-                      ? `${dayData.count} student${dayData.count !== 1 ? "s" : ""} logged in`
-                      : undefined
-                  }
-                >
-                  <span
-                    className={cn(
-                      "inline-flex size-6 items-center justify-center rounded-full text-xs font-medium",
-                      isToday
-                        ? "bg-primary text-primary-foreground"
-                        : "text-foreground"
-                    )}
-                  >
-                    {day}
-                  </span>
-
-                  {dayData && (
-                    <div className="mt-1">
-                      <div className="flex items-center gap-1 rounded-md bg-emerald-500/10 px-1.5 py-0.5">
-                        <LogIn className="size-2.5 text-emerald-600 dark:text-emerald-400" />
-                        <span className="text-[10px] font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">
-                          {dayData.count}
-                        </span>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/50">
+                    <th className="whitespace-nowrap px-3 py-3 text-left font-medium text-muted-foreground">
+                      <div className="flex items-center gap-1.5">
+                        <CalendarDays className="size-3.5" />
+                        Date
                       </div>
-                    </div>
-                  )}
-                </div>
-              ))}
+                    </th>
+                    <th className="whitespace-nowrap px-3 py-3 text-left font-medium text-muted-foreground">
+                      <div className="flex items-center gap-1.5">
+                        <UserIcon className="size-3.5" />
+                        Student
+                      </div>
+                    </th>
+                    <th className="whitespace-nowrap px-3 py-3 text-left font-medium text-muted-foreground">
+                      Dept
+                    </th>
+                    <th className="whitespace-nowrap px-3 py-3 text-left font-medium text-muted-foreground">
+                      Sem
+                    </th>
+                    <th className="whitespace-nowrap px-3 py-3 text-center font-medium text-muted-foreground">
+                      Status
+                    </th>
+                    <th className="whitespace-nowrap px-3 py-3 text-center font-medium text-muted-foreground">
+                      <div className="flex items-center justify-center gap-1">
+                        <LogIn className="size-3.5" />
+                        Login
+                      </div>
+                    </th>
+                    <th className="whitespace-nowrap px-3 py-3 text-center font-medium text-muted-foreground">
+                      <div className="flex items-center justify-center gap-1">
+                        <LogOut className="size-3.5" />
+                        Logout
+                      </div>
+                    </th>
+                    <th className="whitespace-nowrap px-3 py-3 text-center font-medium text-muted-foreground">
+                      <div className="flex items-center justify-center gap-1">
+                        <Clock className="size-3.5" />
+                        Duration
+                      </div>
+                    </th>
+                    <th className="whitespace-nowrap px-3 py-3 text-center font-medium text-muted-foreground">
+                      Logins
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {paginatedRecords.map((record) => (
+                    <tr
+                      key={`${record.userId}|${record.date}`}
+                      className={cn(
+                        "transition-colors hover:bg-muted/30",
+                        record.status === "absent" && "bg-red-50/30 dark:bg-red-950/10"
+                      )}
+                    >
+                      <td className="whitespace-nowrap px-3 py-2.5 font-mono text-xs text-muted-foreground">
+                        {formatDate(record.date)}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <div>
+                          <p className="text-sm font-medium">{record.name}</p>
+                          <p className="text-xs text-muted-foreground">{record.rollNumber}</p>
+                        </div>
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2.5 text-xs text-muted-foreground">
+                        {record.department.code}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2.5 text-center text-xs text-muted-foreground">
+                        {record.semester}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2.5 text-center">
+                        <span
+                          className={cn(
+                            "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold leading-tight",
+                            record.status === "present"
+                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                              : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                          )}
+                        >
+                          {record.status === "present" ? (
+                            <CheckCircle2 className="size-3" />
+                          ) : (
+                            <XCircle className="size-3" />
+                          )}
+                          {record.status === "present" ? "Present" : "Absent"}
+                        </span>
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2.5 text-center font-mono text-xs tabular-nums text-muted-foreground">
+                        {formatTime(record.firstLogin)}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2.5 text-center font-mono text-xs tabular-nums text-muted-foreground">
+                        {formatTime(record.lastLogout)}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2.5 text-center text-xs font-medium tabular-nums">
+                        {record.duration !== null ? (
+                          <span
+                            className={cn(
+                              record.duration >= 60
+                                ? "text-emerald-600 dark:text-emerald-400"
+                                : record.duration >= 30
+                                ? "text-amber-600 dark:text-amber-400"
+                                : "text-muted-foreground"
+                            )}
+                          >
+                            {formatDuration(record.duration)}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2.5 text-center text-xs text-muted-foreground">
+                        {record.loginCount || "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </CardContent>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between border-t px-4 py-3">
+              <p className="text-sm text-muted-foreground">
+                Page {page} of {totalPages}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page <= 1}
+                >
+                  <ChevronLeft className="size-4" />
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page >= totalPages}
+                >
+                  Next
+                  <ChevronRight className="size-4" />
+                </Button>
+              </div>
+            </div>
+          )}
         </Card>
       )}
 
-      {/* Day Detail Modal */}
-      {selectedDay && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-2xl rounded-xl border bg-card shadow-lg max-h-[85vh] flex flex-col">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between border-b px-6 py-4 shrink-0">
-              <div>
-                <h2 className="text-lg font-semibold flex items-center gap-2">
-                  <CalendarDays className="size-4 text-primary" />
-                  {formatFullDate(selectedDay)}
-                </h2>
-                <p className="text-sm text-muted-foreground mt-0.5">
-                  {selectedStudents.length} student{selectedStudents.length !== 1 ? "s" : ""} logged in
-                </p>
-              </div>
-              <button
-                onClick={() => setSelectedDay(null)}
-                className="rounded-lg p-1 text-muted-foreground hover:bg-muted"
-              >
-                <X className="size-4" />
-              </button>
-            </div>
-
-            {/* Modal Body */}
-            <div className="flex-1 overflow-y-auto p-6">
-              <div className="space-y-2">
-                {selectedStudents.map((student) => (
-                  <div
-                    key={student.userId}
-                    className="flex items-center gap-4 rounded-lg border p-3 transition-colors hover:bg-muted/30"
-                  >
-                    <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+      {/* ===== CARD VIEW (Grouped by Student) ===== */}
+      {!loading && data && data.attendance.length > 0 && viewMode === "cards" && (
+        <div className="space-y-4">
+          {groupedByStudent.map((group) => (
+            <Card key={group.studentId} className="overflow-hidden">
+              <CardHeader className="border-b bg-muted/20 px-4 py-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="flex size-9 items-center justify-center rounded-full bg-primary/10 text-primary">
                       <UserIcon className="size-4" />
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium">{student.name}</p>
+                    <div>
+                      <p className="text-sm font-medium">{group.name}</p>
                       <p className="text-xs text-muted-foreground">
-                        {student.rollNumber} · {student.department.name} · Sem {student.semester}
+                        {group.rollNumber} · {group.department.name} · Sem {group.semester}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {/* Login time - green */}
-                      <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/30 ring-1 ring-emerald-200/50 dark:ring-emerald-800/30 px-2.5 py-1.5 text-center">
-                        <div className="flex items-center justify-center gap-1 text-emerald-600 dark:text-emerald-400">
-                          <LogIn className="size-3" />
-                          <span className="text-[10px] font-semibold uppercase tracking-wider">
-                            Login
-                          </span>
+                  </div>
+                  <div className="flex items-center gap-3 text-xs">
+                    <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                      <CheckCircle2 className="size-3.5" />
+                      {group.presentDays} present
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-red-600 dark:text-red-400">
+                      <XCircle className="size-3.5" />
+                      {group.totalDays - group.presentDays} absent
+                    </span>
+                    <span className="text-muted-foreground">
+                      {((group.presentDays / group.totalDays) * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/30">
+                        <th className="px-3 py-2 text-left text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                          Date
+                        </th>
+                        <th className="px-3 py-2 text-center text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                          Status
+                        </th>
+                        <th className="px-3 py-2 text-center text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                          Login
+                        </th>
+                        <th className="px-3 py-2 text-center text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                          Logout
+                        </th>
+                        <th className="px-3 py-2 text-center text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                          Duration
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {group.records.map((record) => (
+                        <tr
+                          key={`${record.userId}|${record.date}`}
+                          className={cn(
+                            "transition-colors hover:bg-muted/20",
+                            record.status === "absent" && "bg-red-50/20 dark:bg-red-950/5"
+                          )}
+                        >
+                          <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-muted-foreground">
+                            {formatDate(record.date)}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2 text-center">
+                            <span
+                              className={cn(
+                                "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                                record.status === "present"
+                                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                                  : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                              )}
+                            >
+                              {record.status === "present" ? (
+                                <CheckCircle2 className="size-2.5" />
+                              ) : (
+                                <XCircle className="size-2.5" />
+                              )}
+                              {record.status === "present" ? "Present" : "Absent"}
+                            </span>
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2 text-center font-mono text-xs tabular-nums text-muted-foreground">
+                            {formatTime(record.firstLogin)}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2 text-center font-mono text-xs tabular-nums text-muted-foreground">
+                            {formatTime(record.lastLogout)}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2 text-center text-xs tabular-nums">
+                            {record.duration !== null ? (
+                              <span
+                                className={cn(
+                                  "font-medium",
+                                  record.duration >= 60
+                                    ? "text-emerald-600 dark:text-emerald-400"
+                                    : record.duration >= 30
+                                    ? "text-amber-600 dark:text-amber-400"
+                                    : "text-muted-foreground"
+                                )}
+                              >
+                                {formatDuration(record.duration)}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* ===== LIVE VIEW (Real-time Active Sessions) ===== */}
+      {viewMode === "live" && (
+        <div className="space-y-4">
+          {/* Live banner */}
+          <Card className="border-emerald-200 dark:border-emerald-900 bg-gradient-to-r from-emerald-50 to-emerald-100/50 dark:from-emerald-950/30 dark:to-emerald-900/20">
+            <CardContent className="flex items-center justify-between p-4">
+              <div className="flex items-center gap-3">
+                <span className="relative flex size-3">
+                  <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex size-3 rounded-full bg-emerald-500" />
+                </span>
+                <div>
+                  <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-200">
+                    {liveData?.totalActive || 0} student{liveData?.totalActive !== 1 ? "s" : ""} currently active
+                  </p>
+                  <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                    Out of {liveData?.totalStudents || 0} total students · Auto-refreshes every 10s
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {liveData?.checkedAt && (
+                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400">
+                    Updated {new Date(liveData.checkedAt).toLocaleTimeString()}
+                  </span>
+                )}
+                <Button
+                  variant="outline"
+                  size="xs"
+                  onClick={fetchLiveSessions}
+                  disabled={liveLoading}
+                  className="border-emerald-300 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-700 dark:text-emerald-300 dark:hover:bg-emerald-900/50"
+                >
+                  <RefreshCw className={cn("size-3", liveLoading && "animate-spin")} />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Loading */}
+          {liveLoading && !liveData && (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="size-6 animate-spin text-muted-foreground" />
+            </div>
+          )}
+
+          {/* Error */}
+          {liveError && !liveLoading && (
+            <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-12 text-center">
+              <AlertCircle className="size-10 text-destructive/60" />
+              <p className="mt-3 font-medium">{liveError}</p>
+              <Button variant="outline" size="sm" className="mt-3" onClick={fetchLiveSessions}>
+                Retry
+              </Button>
+            </div>
+          )}
+
+          {/* No active sessions */}
+          {liveData && liveData.activeSessions.length === 0 && !liveLoading && (
+            <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-16 text-center">
+              <Wifi className="size-12 text-muted-foreground/30" />
+              <h3 className="mt-4 text-sm font-medium">No active sessions</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                No students are currently logged in. Active sessions will appear here in real time.
+              </p>
+            </div>
+          )}
+
+          {/* Active sessions grid */}
+          {liveData && liveData.activeSessions.length > 0 && (
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {liveData.activeSessions.map((session) => (
+                <Card
+                  key={session.userId}
+                  className="transition-all hover:shadow-md overflow-hidden border-emerald-200 dark:border-emerald-900/50"
+                >
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <span className="relative flex size-3 shrink-0 mt-1">
+                          <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                          <span className="relative inline-flex size-3 rounded-full bg-emerald-500" />
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">{session.name}</p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {session.rollNumber} · {session.department.code} · Sem {session.semester}
+                          </p>
                         </div>
-                        <p className="text-xs font-mono tabular-nums text-emerald-700 dark:text-emerald-300 mt-0.5 font-medium">
-                          {formatTime(student.loginTime)}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-2 gap-3">
+                      <div className="rounded-lg bg-muted/50 p-2.5">
+                        <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                          Logged In
+                        </p>
+                        <p className="mt-0.5 text-xs font-mono tabular-nums">
+                          {formatTime(session.loginTime)}
                         </p>
                       </div>
-                      {/* Logout time - red/amber, shown as '—' if still logged in */}
-                      <div className={cn(
-                        "rounded-lg px-2.5 py-1.5 text-center ring-1",
-                        student.logoutTime
-                          ? "bg-red-50 dark:bg-red-950/30 ring-red-200/50 dark:ring-red-800/30"
-                          : "bg-amber-50 dark:bg-amber-950/30 ring-amber-200/50 dark:ring-amber-800/30"
-                      )}>
-                        <div className={cn(
-                          "flex items-center justify-center gap-1",
-                          student.logoutTime
-                            ? "text-red-600 dark:text-red-400"
-                            : "text-amber-600 dark:text-amber-400"
-                        )}>
-                          <LogOut className="size-3" />
-                          <span className="text-[10px] font-semibold uppercase tracking-wider">
-                            Logout
-                          </span>
-                        </div>
-                        <p className={cn(
-                          "text-xs font-mono tabular-nums mt-0.5 font-medium",
-                          student.logoutTime
-                            ? "text-red-700 dark:text-red-300"
-                            : "text-amber-700 dark:text-amber-300"
-                        )}>
-                          {student.logoutTime ? formatTime(student.logoutTime) : "Still in"}
+                      <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/30 p-2.5 ring-1 ring-emerald-200/50 dark:ring-emerald-800/30">
+                        <p className="text-[10px] font-medium uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                          Duration
+                        </p>
+                        <p className="mt-0.5 text-sm font-bold tabular-nums text-emerald-700 dark:text-emerald-300">
+                          {formatDurationLive(session.loginTime)}
                         </p>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            </div>
 
-            {/* Modal Footer */}
-            <div className="flex justify-end border-t px-6 py-3 shrink-0">
-              <Button variant="outline" onClick={() => setSelectedDay(null)}>
-                Close
-              </Button>
+                    <div className="mt-3 flex items-center gap-2 text-[10px] text-muted-foreground">
+                      <Radio className="size-3" />
+                      <span>Active session · {session.department.name}</span>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
-          </div>
+          )}
+        </div>
+      )}
+    </div>
         </div>
       )}
     </div>

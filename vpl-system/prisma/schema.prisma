@@ -160,6 +160,7 @@ model Submission {
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
+
   @@index([studentId])
   @@index([questionId])
   @@index([status])

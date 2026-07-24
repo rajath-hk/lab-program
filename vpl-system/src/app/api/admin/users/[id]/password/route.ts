@@ -60,6 +60,7 @@ export async function POST(
       }
     })
 
+
     await logActivity(
       session.user.id,
       "UPDATE_USER",

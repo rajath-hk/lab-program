@@ -1158,7 +1158,6 @@ export default function CodeEditorPage() {
                             className="w-full rounded border border-border bg-background/50 px-2.5 py-1.5 font-mono text-xs text-foreground outline-none transition-colors focus:border-info focus:ring-1 focus:ring-info/30 placeholder:text-muted-foreground/60"
                           />
                         </div>
-
                         <div className="p-0 flex-1 min-h-0 overflow-auto">
                           {running ? (
                             <div className="flex items-center gap-2 px-3 py-4 text-sm text-muted-foreground">
